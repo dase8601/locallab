@@ -1,0 +1,40 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Database & vector stores (user data — never commit)
+db/done.db
+db/chroma/
+db/qdrant/
+db/*.db-shm
+db/*.db-wal
+
+# User uploads (personal files)
+uploads/
+!uploads/.gitkeep
+
+# Logs & exports
+logs/
+exports/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# pip version fragments (leftover from bad install)
+=0.*
+=1.*
+
+# Claude Code personal settings
+.claude/
+
+# Environment
+.env
+.env.local

@@ -1,0 +1,22 @@
+models:
+  vision:    qwen2.5vl:7b
+  reasoning: qwen2.5:14b
+  embedding: nomic-embed-text
+  ollama_url: http://localhost:11434
+
+watch:
+  folders:
+    - /Users/dallassellers/Documents/UniversityOfColorodoBoulder
+  extensions: [.pdf, .docx, .txt, .png, .jpg, .csv, .xlsx]
+
+chunking:
+  size: 600
+  overlap: 100
+
+retrieval:
+  top_k: 5
+  threshold: 0.7
+
+eval:
+  spans_per_doc: 5
+  counterfactual: true

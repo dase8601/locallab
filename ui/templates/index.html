@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>locallab</title>
+<meta name="description" content="Private AI for your files. Ask questions about your documents — 100% local, zero cloud.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2310b981'/><text x='5' y='24' font-size='22' font-weight='bold' fill='white' font-family='system-ui'>L</text></svg>">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap');
+:root {
+  --bg:#212121;--bg2:#2a2a2a;--bg3:#353535;--border:#404040;
+  --text:#ececec;--text2:#9b9b9b;--text3:#6b6b6b;
+  --green:#10a37f;--green-bg:rgba(16,163,127,.15);
+  --amber:#d97706;--amber-bg:rgba(217,119,6,.15);
+  --red:#dc2626;--red-bg:rgba(220,38,38,.15);
+  --blue:#3b82f6;--blue-bg:rgba(59,130,246,.15);
+  --sidebar-bg:#171717;--logo-blend:screen;
+  --sidebar:260px;--radius:10px;
+}
+body.light {
+  --bg:#f5f5f5;--bg2:#ffffff;--bg3:#ebebeb;--border:#dedede;
+  --text:#1a1a1a;--text2:#555555;--text3:#888888;
+  --green:#0d9268;--green-bg:rgba(13,146,104,.12);
+  --amber:#b45309;--amber-bg:rgba(180,83,9,.12);
+  --red:#b91c1c;--red-bg:rgba(185,28,28,.12);
+  --blue:#2563eb;--blue-bg:rgba(37,99,235,.12);
+  --sidebar-bg:#ffffff;--logo-blend:multiply;
+}
+body.light .sidebar{background:#ffffff;border-right:1px solid var(--border)}
+body.light .model-select{background:var(--bg3);color:var(--text)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden;font-size:14px}
+/* SIDEBAR */
+.sidebar{width:var(--sidebar);min-width:var(--sidebar);height:100vh;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{padding:20px 18px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sidebar-nav{flex:1;overflow-y:auto;overflow-x:hidden}
+.sidebar-nav::-webkit-scrollbar{width:3px}
+.sidebar-nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.logo{display:block;margin-bottom:16px}
+.logo img{height:140px;width:auto;max-width:100%;display:block;mix-blend-mode:var(--logo-blend)}
+.new-btn{width:100%;padding:8px 12px;background:var(--text);color:var(--bg);border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;transition:opacity .15s}
+.new-btn:hover{opacity:.85}
+.nav-section{padding:12px 10px 4px}
+.nav-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);padding:0 8px;margin-bottom:4px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;color:var(--text2);font-size:13.5px;font-weight:400;transition:background .1s,color .1s;border:none;background:none;width:100%;text-align:left}
+.nav-item:hover{background:var(--bg3);color:var(--text)}
+.nav-item.active{background:var(--bg3);color:var(--text);font-weight:500}
+.nav-item svg{opacity:.6;flex-shrink:0}
+.nav-item.active svg{opacity:1}
+.nav-badge{margin-left:auto;background:var(--bg3);color:var(--text2);font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px}
+.sidebar-footer{flex-shrink:0;padding:12px 10px;border-top:1px solid var(--border)}
+.status-pill{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:var(--green-bg);font-size:12px;color:var(--green);font-weight:500}
+.model-selector{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.model-label{font-size:11px;color:var(--text3);font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:0 2px}
+.model-select{width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:12.5px;font-family:inherit;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239b9b9b' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:26px;background-color:var(--bg3)}
+.model-select:focus{outline:none;border-color:var(--text2)}
+.model-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);font-size:11px;color:var(--text2);font-family:monospace}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.view{display:none;flex-direction:column;height:100%}
+.view.active{display:flex}
+/* ASK */
+.chat-area{flex:1;overflow-y:auto;padding:32px 0;scroll-behavior:smooth}
+.chat-area::-webkit-scrollbar{width:4px}
+.chat-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.chat-inner{max-width:720px;margin:0 auto;padding:0 24px}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text2)}
+.empty-logo img{height:300px;width:auto;max-width:420px;mix-blend-mode:var(--logo-blend)}
+.empty-tagline{font-size:15px;color:var(--text2)}
+.empty-suggestions{display:flex;flex-direction:column;gap:8px;margin-top:12px;width:100%;max-width:480px}
+.suggestion{padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text2);transition:all .15s;text-align:left;font-family:inherit}
+.suggestion:hover{background:var(--bg3);color:var(--text);border-color:#ccc}
+.message{margin-bottom:28px;animation:fadeUp .2s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.msg-role{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:8px}
+.msg-user{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:inline-block;max-width:85%;font-size:14.5px;line-height:1.7}
+.answer-card{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--bg2)}
+.answer-body{padding:18px 20px;font-size:14.5px;line-height:1.75;border-bottom:1px solid var(--border)}
+.answer-body p{margin:0 0 10px}
+.answer-body p:last-child{margin-bottom:0}
+.answer-body ul,.answer-body ol{margin:0 0 10px;padding-left:22px}
+.answer-body li{margin-bottom:4px;line-height:1.6}
+.answer-body h1,.answer-body h2,.answer-body h3,.answer-body h4{font-weight:600;margin:14px 0 6px;line-height:1.3;color:var(--text)}
+.answer-body h1{font-size:17px}.answer-body h2{font-size:15.5px}.answer-body h3,.answer-body h4{font-size:14px}
+.answer-body strong{font-weight:600;color:var(--text)}
+.answer-body em{font-style:italic;color:var(--text2)}
+.answer-body code{font-family:monospace;font-size:13px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;color:var(--text)}
+.answer-body pre{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 16px;overflow-x:auto;margin:10px 0}
+.answer-body pre code{background:none;border:none;padding:0;font-size:13px;line-height:1.6}
+.answer-body blockquote{border-left:3px solid var(--border);margin:10px 0;padding:4px 14px;color:var(--text2);font-style:italic}
+.answer-body a{color:var(--blue);text-decoration:none}.answer-body a:hover{text-decoration:underline}
+.answer-body hr{border:none;border-top:1px solid var(--border);margin:12px 0}
+.answer-body table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+.answer-body th,.answer-body td{padding:7px 12px;border:1px solid var(--border);text-align:left}
+.answer-body th{background:var(--bg3);font-weight:600}
+.answer-meta{padding:12px 20px;display:flex;align-items:center;gap:16px;background:var(--bg3);flex-wrap:wrap}
+.confidence{display:flex;align-items:center;gap:8px;flex:1;min-width:160px}
+.conf-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);white-space:nowrap}
+.conf-track{flex:1;height:4px;background:var(--bg3);border-radius:4px;overflow:hidden}
+.conf-fill{height:100%;border-radius:4px;transition:width .6s ease}
+.conf-fill.high{background:var(--green)}
+.conf-fill.med{background:var(--amber)}
+.conf-fill.low{background:var(--red)}
+.conf-pct{font-size:12px;font-weight:600;color:var(--text2);min-width:36px;text-align:right}
+.source-tag{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:20px;font-size:11.5px;color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .15s;font-weight:500;font-family:inherit}
+.source-tag:hover{background:var(--text);color:var(--bg);border-color:var(--text)}
+.source-panel{margin-top:10px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:none}
+.source-panel.open{display:block;animation:fadeUp .15s ease}
+.source-panel-header{padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);display:flex;justify-content:space-between;align-items:center}
+.source-panel-body{padding:14px 16px;font-size:13.5px;line-height:1.6;color:var(--text2);background:var(--bg2)}
+.source-quote{background:rgba(245,196,0,.08);border-left:3px solid #f5c400;padding:10px 14px;border-radius:0 6px 6px 0;font-size:13px;line-height:1.6;color:var(--text);margin-top:8px;font-style:italic}
+.thinking{display:flex;align-items:center;gap:6px;color:var(--text3);font-size:13px;padding:4px 0}
+.feedback-row{display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.feedback-label{font-size:11px;color:var(--text3);margin-right:2px}
+.thumb-btn{width:32px;height:32px;border-radius:8px;border:1.5px solid var(--border);background:var(--bg3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .15s;color:var(--text3)}
+.thumb-btn:hover{background:var(--bg2);border-color:var(--text3);color:var(--text2);transform:scale(1.08)}
+.thumb-btn.up:hover{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.thumb-btn.down:hover{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.thumb-btn.up.active{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.thumb-btn.down.active{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.thumb-btn.voted{cursor:default;transform:none}
+.elapsed-label{font-size:11px;color:var(--text3);margin-left:6px}
+.thumb-btn.voted{opacity:.5;cursor:default}
+.thinking-dots{display:flex;gap:3px}
+.thinking-dots span{width:5px;height:5px;background:var(--text3);border-radius:50%;animation:blink 1.2s infinite}
+.thinking-dots span:nth-child(2){animation-delay:.2s}
+.thinking-dots span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+.stream-cursor{display:inline-block;width:2px;height:1em;background:var(--text2);margin-left:2px;vertical-align:text-bottom;animation:cur-blink .6s steps(1) infinite}
+@keyframes cur-blink{0%,100%{opacity:1}50%{opacity:0}}
+/* INPUT */
+.input-area{padding:16px 24px 20px;background:var(--bg);border-top:1px solid var(--border)}
+.input-inner{max-width:720px;margin:0 auto}
+.input-box{display:flex;align-items:flex-end;gap:10px;background:var(--bg3);border:1.5px solid var(--border);border-radius:14px;padding:12px 14px;transition:border-color .15s;box-shadow:0 1px 8px rgba(0,0,0,.2)}
+.input-box:focus-within{border-color:#aaa}
+.input-box textarea{flex:1;border:none;outline:none;background:none;font-family:inherit;font-size:14.5px;color:var(--text);resize:none;line-height:1.5;max-height:160px;min-height:24px}
+.input-box textarea::placeholder{color:var(--text3)}
+.send-btn{width:36px;height:36px;background:var(--green);border:none;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .1s}
+.send-btn:hover{opacity:.88;transform:scale(1.04)}
+.send-btn:disabled{opacity:.3;cursor:default;transform:none}
+.input-hint{font-size:11px;color:var(--text3);text-align:center;margin-top:10px}
+/* HEADER */
+.view-header{padding:28px 32px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.view-title{font-size:20px;font-weight:700;letter-spacing:-.3px}
+.view-subtitle{font-size:13px;color:var(--text2);margin-top:2px}
+.view-content{flex:1;overflow-y:auto;padding:24px 32px}
+.view-content::-webkit-scrollbar{width:4px}
+.view-content::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+/* BUTTONS */
+.btn{padding:8px 16px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:var(--bg3);color:var(--text);display:flex;align-items:center;gap:6px}
+.btn:hover{background:var(--bg2)}
+.btn.primary{background:var(--text);color:var(--bg);border-color:var(--text)}
+.btn.primary:hover{opacity:.85}
+/* STATS */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+.stat-value{font-size:28px;font-weight:700;letter-spacing:-1px;line-height:1;margin-bottom:4px}
+.stat-label{font-size:12px;color:var(--text2)}
+/* FILE TABLE */
+.files-table{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.files-table-header{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px;padding:10px 18px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);gap:12px}
+.file-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px;padding:13px 18px;border-bottom:1px solid var(--bg2);align-items:center;gap:12px;cursor:pointer;transition:background .1s}
+.file-row:last-child{border-bottom:none}
+.file-row:hover{background:var(--bg)}
+.file-name{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:500}
+.file-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.file-icon.pdf{background:rgba(220,38,38,.2);color:#fca5a5}
+.file-icon.doc,.file-icon.docx{background:rgba(59,130,246,.2);color:#93c5fd}
+.file-icon.img{background:rgba(167,139,250,.2);color:#c4b5fd}
+.file-icon.csv,.file-icon.xlsx{background:rgba(16,163,127,.2);color:#6ee7b7}
+.file-icon.txt,.file-icon.md{background:var(--bg3);color:var(--text3)}
+.file-meta{font-size:12.5px;color:var(--text2)}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.badge.indexed{background:var(--green-bg);color:var(--green)}
+.badge.indexing{background:var(--amber-bg);color:var(--amber)}
+.badge.error{background:var(--red-bg);color:var(--red)}
+/* QUEUE */
+.queue-section{margin-bottom:24px}
+.queue-title{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
+.job-row{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px}
+.job-name{font-size:13.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job-meta{font-size:12px;color:var(--text2);white-space:nowrap}
+.progress-bar{flex:1;height:3px;background:var(--bg3);border-radius:3px;overflow:hidden;min-width:80px;max-width:120px}
+.progress-fill{height:100%;background:var(--amber);border-radius:3px;transition:width .5s}
+/* INSIGHTS */
+.insights-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.insight-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.insight-card.full{grid-column:1/-1}
+.insight-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:16px}
+.accuracy-big{text-align:center;padding:8px 0}
+.accuracy-number{font-size:56px;font-weight:800;letter-spacing:-3px;line-height:1}
+.accuracy-label{font-size:12px;color:var(--text2);margin-top:6px}
+.accuracy-delta{display:inline-block;margin-top:8px;padding:3px 10px;background:var(--green-bg);color:var(--green);border-radius:20px;font-size:12px;font-weight:600}
+.chart-bars{display:flex;align-items:flex-end;gap:6px;height:80px}
+.chart-bar{flex:1;border-radius:4px 4px 0 0;background:var(--bg3);cursor:pointer;position:relative;transition:background .2s}
+.chart-bar:hover{background:var(--text)}
+.chart-bar .tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--text);color:white;font-size:10px;padding:3px 6px;border-radius:4px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s}
+.chart-bar:hover .tip{opacity:1}
+.log-list{display:flex;flex-direction:column;gap:10px}
+.log-item{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
+.log-icon{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px}
+.log-icon.up{background:var(--green-bg);color:var(--green)}
+.log-icon.info{background:var(--bg2);color:var(--text2)}
+.log-text{font-size:13px;color:var(--text);line-height:1.4}
+.log-time{font-size:11px;color:var(--text3);margin-top:2px}
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;display:flex;align-items:center;justify-content:center;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{background:var(--bg2);border-radius:14px;padding:28px;width:520px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.5);border:1px solid var(--border)}
+.modal-title{font-size:17px;font-weight:700;margin-bottom:6px}
+.modal-sub{font-size:13px;color:var(--text2);margin-bottom:20px}
+.modal-input{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13.5px;color:var(--text);background:var(--bg3);outline:none;transition:border-color .15s}
+.modal-input:focus{border-color:#aaa}
+.modal-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+.modal-hint{font-size:12px;color:var(--text3);margin-top:8px}
+/* TOAST */
+.toast-wrap{position:fixed;bottom:24px;right:24px;z-index:200;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{padding:10px 16px;border-radius:10px;font-size:13px;font-weight:500;max-width:320px;pointer-events:auto;animation:toastIn .2s ease;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.toast.success{background:var(--green);color:#fff}
+.toast.error{background:#ef4444;color:#fff}
+.toast.info{background:var(--bg2);color:var(--text);border:1px solid var(--border)}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* FIRST-RUN OVERLAY */
+.welcome-overlay{position:fixed;inset:0;background:var(--bg);z-index:150;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0}
+.welcome-inner{max-width:480px;width:90vw;text-align:center;padding:40px 0}
+.welcome-steps{display:flex;gap:24px;justify-content:center;margin:28px 0 32px;flex-wrap:wrap}
+.welcome-step{display:flex;flex-direction:column;align-items:center;gap:8px;width:120px}
+.welcome-step-num{width:36px;height:36px;border-radius:50%;background:var(--green-bg);color:var(--green);font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
+.welcome-step-label{font-size:12px;color:var(--text2);line-height:1.4;text-align:center}
+/* DELETE BUTTON */
+.file-delete-btn{opacity:0;background:none;border:none;cursor:pointer;color:var(--text3);padding:4px 6px;border-radius:6px;transition:all .15s;flex-shrink:0}
+.file-row:hover .file-delete-btn{opacity:1}
+.file-delete-btn:hover{color:#ef4444;background:rgba(239,68,68,.1)}
+/* FILE VIEWER */
+.modal-wide{width:760px;max-width:92vw;max-height:80vh;overflow-y:auto}
+.fv-tab{background:none;border:none;cursor:pointer;padding:6px 12px;font-size:13px;color:var(--text3);border-radius:6px;font-family:inherit;transition:all .1s}
+.fv-tab.active{background:var(--bg3);color:var(--text);font-weight:600}
+.fv-chunk{padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:12.5px;line-height:1.5}
+.fv-chunk-meta{font-size:11px;color:var(--text3);margin-bottom:5px;font-weight:500}
+.fv-entity{display:flex;gap:10px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
+.fv-etype{font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em;min-width:80px;padding-top:2px;flex-shrink:0}
+.fv-evalue{font-size:12.5px;font-weight:600;color:var(--text)}
+.fv-econtext{font-size:11px;color:var(--text3);margin-top:2px;line-height:1.4}
+/* EXPORT DROPDOWN */
+.export-wrap{position:relative}
+.export-menu{position:absolute;top:calc(100% + 6px);right:0;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:160px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.3);display:none}
+.export-menu.open{display:block}
+.export-menu a{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;font-size:13px;color:var(--text2);cursor:pointer;text-decoration:none;transition:background .1s}
+.export-menu a:hover{background:var(--bg3);color:var(--text)}
+/* EMPTY */
+.empty-table{padding:40px;text-align:center;color:var(--text3);font-size:13px}
+/* INSIGHTS */
+.ins-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.ins-stat{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+.ins-stat-val{font-size:26px;font-weight:700;letter-spacing:-0.5px;line-height:1;margin-bottom:3px}
+.ins-stat-lbl{font-size:11.5px;color:var(--text3)}
+.ins-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.ins-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px}
+.ins-card.full{grid-column:1/-1}
+.ins-card-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:14px}
+.dist-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.dist-bar-label{font-size:12.5px;color:var(--text2);width:80px;flex-shrink:0;text-align:right}
+.dist-bar-track{flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.dist-bar-fill{height:100%;border-radius:3px;background:var(--text);transition:width .4s ease}
+.dist-bar-count{font-size:11.5px;color:var(--text3);min-width:28px;text-align:right}
+.recent-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--bg2)}
+.recent-row:last-child{border-bottom:none}
+.recent-name{flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recent-meta{font-size:11.5px;color:var(--text3);white-space:nowrap}
+/* EXPLORE */
+.explore-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:16px 20px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.type-pill{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit;transition:all .12s;white-space:nowrap}
+.type-pill:hover{background:var(--bg3);color:var(--text)}
+.type-pill.active{background:var(--text);color:white;border-color:var(--text)}
+.type-pill .pill-count{opacity:.6;font-size:10.5px;margin-left:4px}
+.explore-search{flex:1;min-width:160px;padding:6px 12px;border:1px solid var(--border);border-radius:20px;font-family:inherit;font-size:13px;color:var(--text);outline:none;background:var(--bg);transition:border-color .15s}
+.explore-search:focus{border-color:var(--text3);background:var(--bg3)}
+.explore-doc-filter{padding:5px 10px;border:1px solid var(--border);border-radius:20px;font-family:inherit;font-size:12px;color:var(--text2);background:var(--bg2);outline:none;cursor:pointer;max-width:180px}
+.entity-list{flex:1;overflow-y:auto}
+.entity-list::-webkit-scrollbar{width:4px}
+.entity-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.entity-row{display:flex;align-items:flex-start;gap:12px;padding:11px 20px;border-bottom:1px solid var(--bg2);transition:background .1s}
+.entity-row:hover{background:var(--bg)}
+.entity-type-badge{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 7px;border-radius:4px;flex-shrink:0;margin-top:1px;min-width:60px;text-align:center}
+.badge-PERSON{background:rgba(59,130,246,.18);color:#93c5fd}
+.badge-ORG{background:rgba(16,163,127,.18);color:#6ee7b7}
+.badge-LOCATION{background:rgba(251,146,60,.18);color:#fdba74}
+.badge-DATE{background:rgba(167,139,250,.18);color:#c4b5fd}
+.badge-AMOUNT{background:rgba(52,211,153,.18);color:#6ee7b7}
+.badge-SKILL{background:rgba(250,204,21,.18);color:#fde68a}
+.badge-CLAUSE{background:rgba(251,113,133,.18);color:#fda4af}
+.badge-CONTACT{background:rgba(125,211,252,.18);color:#7dd3fc}
+.badge-default{background:var(--bg2);color:var(--text2)}
+.entity-value{font-size:13.5px;font-weight:500;color:var(--text);line-height:1.4}
+.entity-context{font-size:12px;color:var(--text3);margin-top:2px;line-height:1.4}
+.entity-source{font-size:11px;color:var(--text3);white-space:nowrap;text-align:right;flex-shrink:0}
+.explore-pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border-top:1px solid var(--border);background:var(--bg2)}
+.page-btn{padding:5px 12px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12.5px;cursor:pointer;background:var(--bg3);color:var(--text2);transition:all .1s}
+.page-btn:hover:not(:disabled){background:var(--bg)}
+.page-btn:disabled{opacity:.35;cursor:default}
+.page-info{font-size:12px;color:var(--text3)}
+/* THEME TOGGLE */
+.theme-toggle{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);cursor:pointer;margin-bottom:8px;font-size:12px;color:var(--text2);font-family:inherit;width:100%;transition:background .1s}
+.theme-toggle:hover{background:var(--bg2);color:var(--text)}
+.toggle-track{width:30px;height:17px;background:var(--border);border-radius:20px;position:relative;transition:background .2s;flex-shrink:0}
+.toggle-track.on{background:var(--green)}
+.toggle-knob{width:13px;height:13px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.toggle-track.on .toggle-knob{transform:translateX(13px)}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <span class="logo"><img src="/static/noback.png" alt="locallab"></span>
+    <button class="new-btn" onclick="newChat()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New question
+    </button>
+  </div>
+
+  <div class="sidebar-nav">
+    <div class="nav-section">
+      <div class="nav-label">Workspace</div>
+      <button class="nav-item active" id="nav-ask" onclick="switchView('ask')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        Ask
+      </button>
+      <button class="nav-item" id="nav-files" onclick="switchView('files')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+        Files
+        <span class="nav-badge" id="files-count">—</span>
+      </button>
+      <button class="nav-item" id="nav-queue" onclick="switchView('queue')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Queue
+        <span class="nav-badge" id="queue-count">—</span>
+      </button>
+      <button class="nav-item" id="nav-explore" onclick="switchView('explore')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Explore
+      </button>
+      <button class="nav-item" id="nav-insights" onclick="switchView('insights')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Insights
+      </button>
+    </div>
+
+    <div class="nav-section" id="recent-section" style="margin-top:8px;display:none">
+      <div class="nav-label">Recent</div>
+      <div id="recent-list"></div>
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="model-selector">
+      <div class="model-label">QA Model</div>
+      <select class="model-select" id="model-select" onchange="onModelChange(this.value)">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn">
+      <span id="theme-toggle-label">Light mode</span>
+      <div class="toggle-track" id="theme-track">
+        <div class="toggle-knob"></div>
+      </div>
+    </button>
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      Running locally · Private
+    </div>
+  </div>
+</aside>
+
+<main class="main">
+
+  <!-- ASK -->
+  <div class="view active" id="view-ask">
+    <div class="chat-area" id="chatArea">
+      <div class="chat-inner" id="chatInner">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-logo"><img id="empty-logo-img" src="/static/noback.png" alt="locallab"></div>
+          <div class="empty-tagline">Ask anything about your documents</div>
+          <div class="empty-suggestions" id="suggestions">
+            <button class="suggestion" onclick="fillQ(this)">What are the key skills in this resume?</button>
+            <button class="suggestion" onclick="fillQ(this)">Who is listed as the primary contact?</button>
+            <button class="suggestion" onclick="fillQ(this)">What companies are mentioned?</button>
+            <button class="suggestion" onclick="fillQ(this)">Summarise the work history</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="input-inner">
+        <div class="input-box">
+          <textarea id="qInput" rows="1" placeholder="Ask a question about your documents…"
+            onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+          <button class="send-btn" id="sendBtn" onclick="sendQ()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          </button>
+        </div>
+        <div class="input-hint">Everything stays on your computer · Never sent to the cloud</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FILES -->
+  <div class="view" id="view-files">
+    <div class="view-header">
+      <div>
+        <div class="view-title">Files</div>
+        <div class="view-subtitle" id="files-subtitle">Loading…</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="export-wrap">
+          <button class="btn" onclick="toggleExportMenu(event)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+          </button>
+          <div class="export-menu" id="export-menu">
+            <a onclick="doExport('json')">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              JSON
+            </a>
+            <a onclick="doExport('csv')">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              CSV (zip)
+            </a>
+            <a onclick="doExport('sqlite')">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+              SQLite DB
+            </a>
+          </div>
+        </div>
+        <button class="btn primary" onclick="openAddModal()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add files
+        </button>
+      </div>
+    </div>
+    <div class="view-content">
+      <div class="stats-row" id="file-stats"></div>
+      <div class="files-table">
+        <div class="files-table-header">
+          <span>Name</span><span>Type</span><span>Pages</span><span>Status</span><span>Entities</span>
+        </div>
+        <div id="files-list"><div class="empty-table">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUEUE -->
+  <div class="view" id="view-queue">
+    <div class="view-header">
+      <div>
+        <div class="view-title">Queue</div>
+        <div class="view-subtitle" id="queue-subtitle">Background ingestion status</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:6px;max-width:480px;line-height:1.5">
+          <strong style="color:var(--text2)">Indexing</strong> means locallab is reading your file, splitting it into searchable pieces, extracting key facts (people, dates, amounts), and storing everything locally so you can ask questions about it. Nothing is sent to the cloud.
+        </div>
+      </div>
+      <button class="btn primary" onclick="openAddModal()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add files
+      </button>
+    </div>
+    <div class="view-content" id="queue-content">
+      <div class="empty-table">No jobs yet. Add files to get started.</div>
+    </div>
+  </div>
+
+  <!-- INSIGHTS -->
+  <!-- EXPLORE VIEW -->
+  <div class="view" id="view-explore" style="flex-direction:column">
+    <div class="view-header">
+      <div>
+        <div class="view-title">Explore</div>
+        <div class="view-subtitle">Browse every entity extracted from your documents</div>
+      </div>
+    </div>
+    <div class="explore-filters" id="explore-filters">
+      <span style="font-size:12px;color:var(--text3)">Loading…</span>
+    </div>
+    <div class="entity-list" id="entity-list">
+      <div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Loading…</div>
+    </div>
+    <div class="explore-pagination" id="explore-pagination" style="display:none">
+      <button class="page-btn" id="page-prev" onclick="explorePage(-1)">← Prev</button>
+      <span class="page-info" id="page-info"></span>
+      <button class="page-btn" id="page-next" onclick="explorePage(1)">Next →</button>
+    </div>
+  </div>
+
+  <!-- INSIGHTS VIEW -->
+  <div class="view" id="view-insights">
+    <div class="view-header">
+      <div>
+        <div class="view-title">Insights</div>
+        <div class="view-subtitle">What locallab knows about your library</div>
+      </div>
+    </div>
+    <div class="view-content" id="insights-content">
+      <div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Loading…</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ADD FILES MODAL -->
+<div id="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">Add files or folder</div>
+      <div class="modal-sub">Browse and select files, or paste a folder path to index everything inside it.</div>
+
+      <input type="file" id="fileInput" multiple accept=".pdf,.docx,.doc,.txt,.md,.csv,.xlsx,.xls,.png,.jpg,.jpeg"
+        style="display:none" onchange="handleFileSelect(this)">
+
+      <button class="btn" style="width:100%;justify-content:center;margin-bottom:12px;padding:12px" onclick="document.getElementById('fileInput').click()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Browse files
+      </button>
+
+      <div style="text-align:center;font-size:12px;color:var(--text3);margin-bottom:12px">or</div>
+
+      <input type="text" class="modal-input" id="pathInput"
+        placeholder="/Users/yourname/Documents/contracts"
+        onkeydown="if(event.key==='Enter')submitIngest()">
+      <div class="modal-hint">Paste a folder path to index all supported files inside it recursively.</div>
+
+      <div id="selected-files" style="margin-top:12px;font-size:12px;color:var(--text2)"></div>
+
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" onclick="submitIngest()" id="ingest-btn">Add to queue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<!-- FIRST-RUN WELCOME OVERLAY -->
+<div class="welcome-overlay" id="welcome-overlay" style="display:none">
+  <div class="welcome-inner">
+    <div class="logo" style="margin-bottom:16px">
+      <img id="welcome-logo" src="/static/noback.png" style="height:100px;max-width:280px;object-fit:contain">
+    </div>
+    <div style="font-size:22px;font-weight:700;margin-bottom:8px">Private AI for your files</div>
+    <div style="font-size:14px;color:var(--text2);margin-bottom:4px">Ask questions about your documents.<br>Everything stays on your machine.</div>
+    <div class="welcome-steps">
+      <div class="welcome-step">
+        <div class="welcome-step-num">1</div>
+        <div class="welcome-step-label">Add your files</div>
+      </div>
+      <div class="welcome-step">
+        <div class="welcome-step-num">2</div>
+        <div class="welcome-step-label">Ask anything</div>
+      </div>
+      <div class="welcome-step">
+        <div class="welcome-step-num">3</div>
+        <div class="welcome-step-label">Get answers with citations</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+      <button class="btn primary" style="padding:10px 22px;font-size:14px" onclick="dismissWelcome();openAddModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add your first file
+      </button>
+      <button class="btn" style="padding:10px 22px;font-size:14px" onclick="dismissWelcome()">Explore the app first</button>
+    </div>
+  </div>
+</div>
+
+<!-- FILE VIEWER MODAL -->
+<div id="file-viewer-modal" style="display:none">
+  <div class="modal-overlay" onclick="closeFileViewer(event)">
+    <div class="modal modal-wide" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div>
+          <div class="modal-title" id="fv-filename">Loading…</div>
+          <div class="modal-sub" id="fv-meta" style="margin-bottom:0"></div>
+        </div>
+        <button style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--text3);padding:0 2px;line-height:1" onclick="document.getElementById('file-viewer-modal').style.display='none'">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;margin:14px 0 0;border-bottom:1px solid var(--border);padding-bottom:10px">
+        <button class="fv-tab active" id="fv-tab-chunks" onclick="fvSwitchTab('chunks')">Chunks</button>
+        <button class="fv-tab" id="fv-tab-entities" onclick="fvSwitchTab('entities')">Entities</button>
+      </div>
+      <div id="fv-chunks-pane" style="margin-top:14px"></div>
+      <div id="fv-entities-pane" style="margin-top:14px;display:none"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MARKDOWN ──────────────────────────────────────────────────────
+marked.use({ breaks: true, gfm: true });
+function renderMd(text) {
+  if (!text) return '';
+  try {
+    const html = marked.parse(String(text));
+    return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
+  } catch(_) {
+    return escHtml(text);
+  }
+}
+
+// ── STATE ─────────────────────────────────────────────────────────
+let currentView        = 'ask';
+let isAsking           = false;
+let selectedFiles      = [];
+let pollInterval       = null;
+let recentQs           = [];
+let conversationHistory = [];  // [{role:'user'|'assistant', content:string}]
+let selectedModel = localStorage.getItem('locallab_model') || '';
+
+// ── THEME ─────────────────────────────────────────────────────────
+let isLightMode = localStorage.getItem('locallab_theme') === 'light';
+
+function logoSrc() {
+  return isLightMode ? '/static/orglocallab.png' : '/static/noback.png';
+}
+
+function applyTheme() {
+  document.body.classList.toggle('light', isLightMode);
+  const track = document.getElementById('theme-track');
+  const label = document.getElementById('theme-toggle-label');
+  if (track) track.classList.toggle('on', isLightMode);
+  if (label) label.textContent = isLightMode ? 'Dark mode' : 'Light mode';
+  // Swap logo in sidebar and empty state
+  document.querySelectorAll('.logo img, .empty-logo img').forEach(img => {
+    img.src = logoSrc();
+  });
+}
+function toggleTheme() {
+  isLightMode = !isLightMode;
+  localStorage.setItem('locallab_theme', isLightMode ? 'light' : 'dark');
+  applyTheme();
+}
+applyTheme();
+
+// ── MODEL SELECTOR ────────────────────────────────────────────────
+async function loadModels() {
+  try {
+    const res = await fetch('/api/models');
+    const data = await res.json();
+    const sel = document.getElementById('model-select');
+    const models = data.models || [];
+    if (!models.length) {
+      sel.innerHTML = '<option value="">No models found</option>';
+      return;
+    }
+    sel.innerHTML = models.map(m =>
+      `<option value="${m}" ${m === selectedModel ? 'selected' : ''}>${m}</option>`
+    ).join('');
+    // If stored model isn't in list, default to first
+    if (!models.includes(selectedModel)) {
+      selectedModel = models[0];
+      localStorage.setItem('locallab_model', selectedModel);
+      sel.value = selectedModel;
+    }
+  } catch(e) {
+    document.getElementById('model-select').innerHTML = '<option value="">Unavailable</option>';
+  }
+}
+
+function onModelChange(val) {
+  selectedModel = val;
+  localStorage.setItem('locallab_model', val);
+}
+
+// ── VIEW SWITCHING ────────────────────────────────────────────────
+function switchView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  document.getElementById('nav-' + name).classList.add('active');
+  currentView = name;
+
+  if (name === 'files')    loadFiles();
+  if (name === 'queue')    loadQueue();
+  if (name === 'explore')  loadExplore();
+  if (name === 'insights') loadInsights();
+}
+
+// ── ASK ───────────────────────────────────────────────────────────
+function fillQ(btn) {
+  document.getElementById('qInput').value = btn.textContent;
+  autoResize(document.getElementById('qInput'));
+}
+
+function newChat() {
+  document.getElementById('chatInner').innerHTML = `
+    <div class="empty-state" id="emptyState">
+      <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
+      <div class="empty-tagline">Ask anything about your documents</div>
+      <div class="empty-suggestions" id="suggestions-sidebar">
+        <button class="suggestion" onclick="fillQ(this)">What are the key skills in this resume?</button>
+        <button class="suggestion" onclick="fillQ(this)">Who is listed as the primary contact?</button>
+        <button class="suggestion" onclick="fillQ(this)">What companies are mentioned?</button>
+        <button class="suggestion" onclick="fillQ(this)">Summarise the work history</button>
+      </div>
+    </div>`;
+  document.getElementById('qInput').value = '';
+  loadSuggestions();
+  conversationHistory = [];
+  switchView('ask');
+}
+
+// Build answer card skeleton immediately on receiving meta event
+function buildAnswerSkeleton(q, meta, thinkId, fbId, panelId) {
+  const isGeneral = meta.mode === 'general';
+  const conf    = meta.confidence || 0;
+  const confPct = Math.round(conf * 100);
+  const confCls = confPct >= 80 ? 'high' : confPct >= 55 ? 'med' : 'low';
+  const sources = meta.sources || [];
+  const hasPanel = sources.length > 0;
+
+  const sourcesHtml = sources.map((s, i) => {
+    const spct = Math.round(s.similarity * 100);
+    const scls = spct >= 80 ? 'high' : spct >= 55 ? 'med' : 'low';
+    const pgLabel = s.page_start > 0
+      ? (s.page_end > s.page_start ? `pp. ${s.page_start}–${s.page_end}` : `p. ${s.page_start}`) : '';
+    return `
+      <div data-srcfile="${escHtml(s.filename)}" style="border-bottom:1px solid var(--border);padding:12px 0${i===sources.length-1?';border:none':''}">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:600;color:var(--text2)" title="${escHtml(s.filepath||s.filename)}">${escHtml(s.filename)}</span>
+          ${pgLabel ? `<span style="font-size:11px;color:var(--text3)">${pgLabel}</span>` : ''}
+          <span style="margin-left:auto;display:flex;align-items:center;gap:5px">
+            <span style="width:48px;height:3px;background:var(--bg3);border-radius:3px;display:inline-block;overflow:hidden">
+              <span style="display:block;height:100%;width:${spct}%;border-radius:3px;background:var(--${scls==='high'?'green':scls==='med'?'amber':'red'})"></span>
+            </span>
+            <span style="font-size:11px;color:var(--text3)">${spct}%</span>
+          </span>
+        </div>
+        <div style="font-size:12.5px;color:var(--text2);line-height:1.5">${escHtml(s.snippet)}…</div>
+      </div>`;
+  }).join('');
+
+  const feedbackRow = `
+    <div class="feedback-row" id="${fbId}"
+      data-question="${escHtml(q)}"
+      data-answer=""
+      data-source="${escHtml(meta.source_file||'')}"
+      data-conf="${conf}">
+      <span class="feedback-label">Was this helpful?</span>
+      ${meta.model ? `<span class="model-tag" style="margin-left:auto" title="Model used"><i class="fa-solid fa-microchip" style="font-size:10px;opacity:.7"></i>${escHtml(meta.model)}</span>` : ''}
+      <button class="thumb-btn up"   title="Helpful"     onclick="submitFeedback(this,'up')"><i class="fa-solid fa-thumbs-up"></i></button>
+      <button class="thumb-btn down" title="Not helpful" onclick="submitFeedback(this,'down')"><i class="fa-solid fa-thumbs-down"></i></button>
+    </div>`;
+
+  if (isGeneral) {
+    return `
+      <div class="msg-role">locallab</div>
+      <div class="answer-card">
+        <div class="answer-body" id="ab-${thinkId}"><div id="ab-text-${thinkId}" style="white-space:pre-wrap"></div><span class="stream-cursor"></span></div>
+        <div class="answer-meta">
+          <span class="source-tag" style="cursor:default;pointer-events:none;opacity:.65">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            General knowledge · no documents matched
+          </span>
+        </div>
+        ${feedbackRow}
+      </div>`;
+  }
+
+  return `
+    <div class="msg-role">locallab</div>
+    <div class="answer-card">
+      <div class="answer-body" id="ab-${thinkId}"><div id="ab-text-${thinkId}" style="white-space:pre-wrap"></div><span class="stream-cursor"></span></div>
+      <div class="answer-meta">
+        <div class="confidence">
+          <span class="conf-label">Trust</span>
+          <div class="conf-track"><div class="conf-fill ${confCls}" style="width:${confPct}%"></div></div>
+          <span class="conf-pct">${confPct}%</span>
+        </div>
+        ${meta.source_file ? `
+        <button class="source-tag" id="src-badge-${thinkId}" onclick="toggleSource('${panelId}')" title="${escHtml(meta.source_path||meta.source_file)}">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+          <span id="src-badge-text-${thinkId}">${escHtml(meta.source_file)}</span>
+        </button>` : ''}
+        ${hasPanel ? `
+        <button class="source-tag" id="src-count-${thinkId}" onclick="toggleSource('${panelId}')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Sources (<span id="src-count-num-${thinkId}">${sources.length}</span>)
+        </button>` : ''}
+      </div>
+      ${feedbackRow}
+    </div>
+    ${hasPanel ? `
+    <div class="source-panel" id="${panelId}">
+      <div class="source-panel-header">
+        <span>Sources used to generate this answer</span>
+        <span style="cursor:pointer;opacity:.5" onclick="toggleSource('${panelId}')">✕</span>
+      </div>
+      <div class="source-panel-body">${sourcesHtml}</div>
+    </div>` : ''}`;
+}
+
+async function sendQ() {
+  if (isAsking) return;
+  const input = document.getElementById('qInput');
+  const q     = input.value.trim();
+  if (!q) return;
+
+  const emptyState = document.getElementById('emptyState');
+  if (emptyState) emptyState.remove();
+
+  isAsking = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  const inner   = document.getElementById('chatInner');
+  const thinkId = 'think-' + Date.now();
+  const fbId    = 'fb-'    + Date.now();
+  const panelId = 'src-'   + Date.now();
+
+  inner.innerHTML += `
+    <div class="message">
+      <div class="msg-role">You</div>
+      <div class="msg-user">${escHtml(q)}</div>
+    </div>`;
+
+  inner.innerHTML += `
+    <div class="message" id="${thinkId}">
+      <div class="msg-role">locallab</div>
+      <div class="thinking">Reading your documents<div class="thinking-dots"><span></span><span></span><span></span></div></div>
+    </div>`;
+
+  input.value = '';
+  autoResize(input);
+  scrollChat();
+  recentQs.unshift(q);
+  if (recentQs.length > 6) recentQs.pop();
+  renderRecent();
+  conversationHistory.push({role: 'user', content: q});
+
+  let fullAnswer = '';
+  let metaReceived = false;
+
+  try {
+    const res = await fetch('/api/ask/stream', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({
+        question:     q,
+        conversation: conversationHistory.slice(-11, -1),
+        model:        selectedModel || undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let   buffer  = '';
+
+    const parseSSE = (raw) => {
+      buffer += raw;
+      const events = [];
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop();
+      for (const block of blocks) {
+        let type = 'message', data = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event: ')) type = line.slice(7).trim();
+          else if (line.startsWith('data: ')) data = line.slice(6).trim();
+        }
+        if (data) events.push({type, data});
+      }
+      return events;
+    };
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      const events = parseSSE(decoder.decode(value, {stream: true}));
+
+      for (const ev of events) {
+        if (ev.type === 'meta') {
+          const meta = JSON.parse(ev.data);
+          metaReceived = true;
+          document.getElementById(thinkId).innerHTML =
+            buildAnswerSkeleton(q, meta, thinkId, fbId, panelId);
+          scrollChat();
+
+        } else if (ev.type === 'token') {
+          fullAnswer += JSON.parse(ev.data).text;
+          const textEl = document.getElementById('ab-text-' + thinkId);
+          if (textEl) textEl.textContent = fullAnswer;
+          scrollChat();
+
+        } else if (ev.type === 'done') {
+          // Final markdown render
+          const bodyEl = document.getElementById('ab-' + thinkId);
+          if (bodyEl) bodyEl.innerHTML = renderMd(fullAnswer || 'No answer found.');
+          // Save answer to feedback row
+          const fbRow = document.getElementById(fbId);
+          if (fbRow) fbRow.dataset.answer = fullAnswer;
+          conversationHistory.push({role: 'assistant', content: fullAnswer});
+          // Update source badge with the file the LLM actually cited
+          // and filter sources panel to only show that file's chunks
+          try {
+            const doneData = JSON.parse(ev.data || '{}');
+            if (doneData.source_file) {
+              const badge = document.getElementById('src-badge-' + thinkId);
+              const badgeText = document.getElementById('src-badge-text-' + thinkId);
+              if (badge) badge.title = doneData.source_path || doneData.source_file;
+              if (badgeText) badgeText.textContent = doneData.source_file;
+              if (fbRow) fbRow.dataset.source = doneData.source_file;
+              // Hide source rows from other files and update count
+              const panel = document.getElementById(panelId);
+              if (panel) {
+                panel.querySelectorAll('[data-srcfile]').forEach(row => {
+                  if (row.dataset.srcfile !== doneData.source_file) row.style.display = 'none';
+                });
+                const visible = panel.querySelectorAll('[data-srcfile]:not([style*="display: none"])').length;
+                const countEl = document.getElementById('src-count-num-' + thinkId);
+                if (countEl) countEl.textContent = visible;
+              }
+            }
+          } catch(_) {}
+          scrollChat();
+          break;
+
+        } else if (ev.type === 'error') {
+          throw new Error(JSON.parse(ev.data).error || 'Stream error');
+        }
+      }
+    }
+
+  } catch(e) {
+    conversationHistory.pop();
+    document.getElementById(thinkId).innerHTML = `
+      <div class="msg-role">locallab</div>
+      <div class="answer-card">
+        <div class="answer-body" style="color:var(--red)">Error: ${escHtml(String(e))}</div>
+      </div>`;
+  }
+
+  isAsking = false;
+  document.getElementById('sendBtn').disabled = false;
+  scrollChat();
+}
+
+async function submitFeedback(btn, thumbs) {
+  const row = btn.closest('.feedback-row');
+  if (!row || row.dataset.voted) return;
+  row.dataset.voted = '1';
+
+  // Highlight clicked button, dim the other
+  row.querySelectorAll('.thumb-btn').forEach(b => b.classList.add('voted'));
+  btn.classList.add('active');
+
+  const question   = row.dataset.question   || '';
+  const answer     = row.dataset.answer     || '';
+  const sourceFile = row.dataset.source     || '';
+  const confidence = parseFloat(row.dataset.conf || '0');
+
+  try {
+    const res = await fetch('/api/feedback', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({thumbs, question, answer, source_file: sourceFile, confidence}),
+    });
+    if (!res.ok) throw new Error('server error');
+  } catch(_) {
+    // Revert UI on failure
+    row.dataset.voted = '';
+    row.querySelectorAll('.thumb-btn').forEach(b => { b.classList.remove('voted'); b.classList.remove('active'); });
+  }
+}
+
+function toggleSource(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+function scrollChat() {
+  setTimeout(() => {
+    const area = document.getElementById('chatArea');
+    area.scrollTop = area.scrollHeight;
+  }, 50);
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQ(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+function renderRecent() {
+  if (!recentQs.length) return;
+  const sec = document.getElementById('recent-section');
+  sec.style.display = 'block';
+  document.getElementById('recent-list').innerHTML = recentQs.map(q => `
+    <button class="nav-item" style="font-size:12.5px" onclick="fillQ(this);switchView('ask')">${escHtml(q.slice(0,36))}${q.length>36?'…':''}</button>
+  `).join('');
+}
+
+// ── FILES ─────────────────────────────────────────────────────────
+async function loadFiles() {
+  const list = document.getElementById('files-list');
+  list.innerHTML = '<div class="empty-table">Loading…</div>';
+
+  try {
+    const res  = await fetch('/api/files');
+    const data = await res.json();
+    const docs = data.documents || [];
+
+    document.getElementById('files-count').textContent = docs.length || '0';
+    document.getElementById('files-subtitle').textContent =
+      `${docs.length} document${docs.length===1?'':'s'} indexed`;
+
+    const totalEntities = docs.reduce((s,d) => s+(d.entity_count||0), 0);
+    document.getElementById('file-stats').innerHTML = `
+      <div class="stat-card"><div class="stat-value">${docs.length}</div><div class="stat-label">Documents</div></div>
+      <div class="stat-card"><div class="stat-value">${docs.reduce((s,d)=>s+(d.page_count||0),0)}</div><div class="stat-label">Pages indexed</div></div>
+      <div class="stat-card"><div class="stat-value">${totalEntities.toLocaleString()}</div><div class="stat-label">Facts extracted</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--green)">0</div><div class="stat-label">Sent to cloud</div></div>
+    `;
+
+    if (!docs.length) {
+      list.innerHTML = '<div class="empty-table">No documents yet. Click "Add files" to get started.</div>';
+      return;
+    }
+
+    list.innerHTML = docs.map(d => {
+      const ext  = (d.file_type||'').replace('.','').toLowerCase();
+      const icon = ['pdf','doc','docx','img','csv','xlsx','txt','md'].includes(ext) ? ext : 'txt';
+      return `
+        <div class="file-row" style="cursor:pointer" onclick="openFileViewer(${d.id})">
+          <div class="file-name">
+            <div class="file-icon ${icon}">${ext.toUpperCase().slice(0,3)}</div>
+            ${escHtml(d.filename)}
+          </div>
+          <div class="file-meta">${(d.file_type||'').toUpperCase()}</div>
+          <div class="file-meta">${d.page_count||'—'}</div>
+          <div><span class="badge ${d.status==='indexed'?'indexed':'indexing'}">${d.status==='indexed'?'✓ Indexed':'⟳ Indexing'}</span></div>
+          <div class="file-meta" style="display:flex;align-items:center;justify-content:space-between">
+            ${(d.entity_count||0).toLocaleString()}
+            <button class="file-delete-btn" title="Remove from library"
+              onclick="event.stopPropagation();deleteFile(${d.id},'${escHtml(d.filename).replace(/'/g,"\\'")}')">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+
+  } catch(e) {
+    list.innerHTML = `<div class="empty-table">Error loading files: ${escHtml(String(e))}</div>`;
+  }
+}
+
+// ── QUEUE ─────────────────────────────────────────────────────────
+async function loadQueue() {
+  try {
+    const res  = await fetch('/api/ingest/status');
+    const data = await res.json();
+
+    const pending    = data.pending    || [];
+    const processing = data.processing || [];
+    const done       = data.done       || [];
+    const failed     = data.failed     || [];
+
+    const active = pending.length + processing.length;
+    document.getElementById('queue-count').textContent = active || '0';
+    document.getElementById('queue-subtitle').textContent =
+      data.worker_active ? '⟳ Processing…' : 'Background ingestion status';
+
+    const content = document.getElementById('queue-content');
+
+    if (!data.total) {
+      content.innerHTML = '<div class="empty-table">No jobs yet. Add files to get started.</div>';
+      return;
+    }
+
+    let html = '';
+
+    if (processing.length) {
+      html += `<div class="queue-section"><div class="queue-title">Processing now</div>`;
+      html += processing.map(j => jobRow(j, 'processing')).join('');
+      html += '</div>';
+    }
+
+    if (pending.length) {
+      html += `<div class="queue-section"><div class="queue-title">Waiting — ${pending.length} file${pending.length===1?'':'s'}</div>`;
+      html += `<p style="font-size:12px;color:var(--text3);margin-bottom:10px">Small files are processed first. Large files wait their turn.</p>`;
+      html += pending.map(j => jobRow(j, 'pending')).join('');
+      html += '</div>';
+    }
+
+    if (failed.length) {
+      html += `<div class="queue-section"><div class="queue-title" style="color:var(--red)">Failed</div>`;
+      html += failed.map(j => jobRow(j, 'failed')).join('');
+      html += '</div>';
+    }
+
+    if (done.length) {
+      html += `<div class="queue-section"><div class="queue-title">Completed — ${done.length} file${done.length===1?'':'s'}</div>`;
+      html += done.slice(0,10).map(j => jobRow(j, 'done')).join('');
+      html += '</div>';
+    }
+
+    content.innerHTML = html;
+
+  } catch(e) {
+    document.getElementById('queue-content').innerHTML =
+      `<div class="empty-table">Error: ${escHtml(String(e))}</div>`;
+  }
+}
+
+function jobRow(j, status) {
+  const icons = {processing:'⟳', pending:'…', done:'✓', failed:'✗'};
+  const colors = {processing:var_('--amber'), pending:var_('--text3'), done:var_('--green'), failed:var_('--red')};
+  const pgLabel = j.page_count > 1 ? `${j.page_count} pages` : '1 page';
+  const eta = status==='pending' ? ` · ~${j.eta_display}` : '';
+  const priorityLabel = {1:'high priority',2:'',3:'low priority',4:'large file — queued last'}[j.priority]||'';
+
+  let rightEl = '';
+  if (status === 'processing') {
+    rightEl = `<div class="progress-bar"><div class="progress-fill" style="width:${j.progress_pct||0}%"></div></div>
+               <span class="job-meta">${j.progress_pct||0}%</span>`;
+  } else if (status === 'done') {
+    rightEl = `<span class="badge indexed">✓ Done</span>`;
+  } else if (status === 'failed') {
+    rightEl = `<span class="badge error">Failed</span>`;
+  } else {
+    rightEl = `<span class="job-meta">${priorityLabel}</span>`;
+  }
+
+  const errorLine = status === 'failed' && j.error_message
+    ? `<div style="font-size:11.5px;color:var(--red);margin-top:3px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(j.error_message)}">${escHtml(j.error_message.slice(0,120))}${j.error_message.length>120?'…':''}</div>`
+    : '';
+
+  return `
+    <div class="job-row">
+      <span style="font-size:14px;color:${colors[status]}">${icons[status]}</span>
+      <div style="flex:1;min-width:0">
+        <div class="job-name">${escHtml(j.filename)}</div>
+        <div class="job-meta">${pgLabel}${eta}</div>
+        ${errorLine}
+      </div>
+      ${rightEl}
+    </div>`;
+}
+
+function var_(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// Auto-poll queue while jobs are active
+function startQueuePoll() {
+  if (pollInterval) return;
+  pollInterval = setInterval(async () => {
+    const res  = await fetch('/api/ingest/status');
+    const data = await res.json();
+    const active = (data.pending||[]).length + (data.processing||[]).length;
+    document.getElementById('queue-count').textContent = active || '0';
+    if (currentView === 'queue') loadQueue();
+    if (currentView === 'files') loadFiles();
+    if (active === 0) { clearInterval(pollInterval); pollInterval = null; }
+  }, 10000);
+}
+
+// ── INSIGHTS ──────────────────────────────────────────────────────
+async function loadInsights() {
+  const el = document.getElementById('insights-content');
+  try {
+    const res  = await fetch('/api/insights');
+    const data = await res.json();
+
+    const fmtBytes = b => b > 1e9 ? (b/1e9).toFixed(1)+' GB'
+                        : b > 1e6 ? (b/1e6).toFixed(1)+' MB'
+                        : (b/1e3).toFixed(0)+' KB';
+
+    const maxEntityCount = data.entity_dist.length ? data.entity_dist[0].count : 1;
+    const maxFileCount   = data.file_dist.length   ? data.file_dist[0].count   : 1;
+
+    const entityDistHtml = data.entity_dist.length
+      ? data.entity_dist.map(r => `
+          <div class="dist-bar-row">
+            <span class="dist-bar-label">${escHtml(r.entity_type)}</span>
+            <div class="dist-bar-track">
+              <div class="dist-bar-fill" style="width:${Math.round(r.count/maxEntityCount*100)}%"></div>
+            </div>
+            <span class="dist-bar-count">${r.count}</span>
+          </div>`).join('')
+      : '<div style="color:var(--text3);font-size:13px">No entities extracted yet</div>';
+
+    const fileDistHtml = data.file_dist.length
+      ? data.file_dist.map(r => `
+          <div class="dist-bar-row">
+            <span class="dist-bar-label">${escHtml(r.file_type||'unknown')}</span>
+            <div class="dist-bar-track">
+              <div class="dist-bar-fill" style="width:${Math.round(r.count/maxFileCount*100)}%"></div>
+            </div>
+            <span class="dist-bar-count">${r.count}</span>
+          </div>`).join('')
+      : '<div style="color:var(--text3);font-size:13px">No documents yet</div>';
+
+    const recentHtml = data.recent_docs.length
+      ? data.recent_docs.map(d => `
+          <div class="recent-row">
+            <div class="recent-name" title="${escHtml(d.filename)}">${escHtml(d.filename)}</div>
+            <span class="recent-meta">${d.chunk_count} chunks</span>
+            <span class="recent-meta" style="margin-left:8px">${d.entity_count} entities</span>
+          </div>`).join('')
+      : '<div style="color:var(--text3);font-size:13px">No documents indexed yet</div>';
+
+    const healthColor = data.failed_count > 0 ? 'var(--red)' : 'var(--green)';
+    const healthLabel = data.failed_count > 0
+      ? `${data.failed_count} failed job${data.failed_count>1?'s':''}`
+      : 'All good';
+
+    el.innerHTML = `
+      <div class="ins-stats">
+        <div class="ins-stat">
+          <div class="ins-stat-val">${data.total_docs}</div>
+          <div class="ins-stat-lbl">Documents</div>
+        </div>
+        <div class="ins-stat">
+          <div class="ins-stat-val">${(data.total_pages||0).toLocaleString()}</div>
+          <div class="ins-stat-lbl">Pages</div>
+        </div>
+        <div class="ins-stat">
+          <div class="ins-stat-val">${(data.total_entities||0).toLocaleString()}</div>
+          <div class="ins-stat-lbl">Entities</div>
+        </div>
+        <div class="ins-stat">
+          <div class="ins-stat-val">${fmtBytes(data.total_bytes||0)}</div>
+          <div class="ins-stat-lbl">Indexed size</div>
+        </div>
+      </div>
+
+      <div class="ins-row">
+        <div class="ins-card">
+          <div class="ins-card-title">Entity types</div>
+          ${entityDistHtml}
+        </div>
+        <div class="ins-card">
+          <div class="ins-card-title">File types</div>
+          ${fileDistHtml}
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+            <div class="ins-card-title" style="margin-bottom:6px">Index health</div>
+            <span style="font-size:13px;font-weight:600;color:${healthColor}">${healthLabel}</span>
+          </div>
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+            <div class="ins-card-title" style="margin-bottom:6px">Answer feedback</div>
+            <div style="display:flex;gap:16px">
+              <span style="font-size:13px;font-weight:600;color:var(--green)"><i class="fa-solid fa-thumbs-up" style="margin-right:4px"></i>${(data.feedback||{}).up||0}</span>
+              <span style="font-size:13px;font-weight:600;color:var(--red)"><i class="fa-solid fa-thumbs-down" style="margin-right:4px"></i>${(data.feedback||{}).down||0}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ins-row">
+        <div class="ins-card full">
+          <div class="ins-card-title">Recently indexed</div>
+          ${recentHtml}
+        </div>
+      </div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${escHtml(String(e))}</div>`;
+  }
+}
+
+// ── EXPLORE ───────────────────────────────────────────────────────
+const exploreState = { type: '', q: '', doc_id: '', page: 1, debounceTimer: null };
+
+async function loadExplore(resetPage = true) {
+  if (resetPage) exploreState.page = 1;
+  const filtersEl = document.getElementById('explore-filters');
+  const listEl    = document.getElementById('entity-list');
+  const pagEl     = document.getElementById('explore-pagination');
+
+  try {
+    const params = new URLSearchParams({
+      type:   exploreState.type,
+      q:      exploreState.q,
+      doc_id: exploreState.doc_id,
+      page:   exploreState.page,
+    });
+    const res  = await fetch('/api/explore/entities?' + params);
+    const data = await res.json();
+
+    // Build filter pills (only on first load or type changes)
+    const TYPES = ['PERSON','ORG','LOCATION','DATE','AMOUNT','SKILL','CLAUSE','CONTACT'];
+    const countMap = Object.fromEntries((data.type_counts||[]).map(r => [r.entity_type, r.count]));
+    const docOptions = (data.documents||[]).map(d =>
+      `<option value="${d.id}" ${exploreState.doc_id==d.id?'selected':''}>${escHtml(d.filename)}</option>`
+    ).join('');
+
+    filtersEl.innerHTML = `
+      <button class="type-pill ${!exploreState.type?'active':''}" onclick="setExploreType('')">
+        All <span class="pill-count">${(data.total||0).toLocaleString()}</span>
+      </button>
+      ${TYPES.map(t => countMap[t] ? `
+        <button class="type-pill ${exploreState.type===t?'active':''}" onclick="setExploreType('${t}')">
+          ${t} <span class="pill-count">${countMap[t]}</span>
+        </button>` : '').join('')}
+      <input class="explore-search" type="text" placeholder="Search entities…"
+        value="${escHtml(exploreState.q)}"
+        oninput="debounceExplore(this.value)">
+      ${docOptions ? `
+        <select class="explore-doc-filter" onchange="setExploreDoc(this.value)">
+          <option value="">All documents</option>
+          ${docOptions}
+        </select>` : ''}
+      <button class="type-pill" onclick="exportEntities()" style="margin-left:auto;flex-shrink:0" title="Download current view as CSV">
+        ↓ Export CSV
+      </button>
+    `;
+
+    // Entity rows
+    if (!data.entities || data.entities.length === 0) {
+      listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">No entities found</div>';
+      pagEl.style.display = 'none';
+      return;
+    }
+
+    listEl.innerHTML = data.entities.map(e => `
+      <div class="entity-row">
+        <span class="entity-type-badge badge-${e.entity_type||'default'}">${escHtml(e.entity_type||'?')}</span>
+        <div style="flex:1;min-width:0">
+          <div class="entity-value">${escHtml(e.value)}</div>
+          ${e.context ? `<div class="entity-context">${escHtml(e.context.slice(0,120))}${e.context.length>120?'…':''}</div>` : ''}
+        </div>
+        <div class="entity-source">
+          <div>${escHtml(e.filename)}</div>
+          ${e.page_number ? `<div>p. ${e.page_number}</div>` : ''}
+        </div>
+      </div>`).join('');
+
+    // Pagination
+    if (data.total_pages > 1) {
+      pagEl.style.display = 'flex';
+      document.getElementById('page-prev').disabled = exploreState.page <= 1;
+      document.getElementById('page-next').disabled = exploreState.page >= data.total_pages;
+      document.getElementById('page-info').textContent =
+        `${exploreState.page} / ${data.total_pages}  (${data.total.toLocaleString()} total)`;
+    } else {
+      pagEl.style.display = 'none';
+    }
+
+  } catch(e) {
+    listEl.innerHTML = `<div style="padding:20px;color:var(--red)">Error: ${escHtml(String(e))}</div>`;
+  }
+}
+
+function setExploreType(t)  { exploreState.type = t;   loadExplore(); }
+function setExploreDoc(id)  { exploreState.doc_id = id; loadExplore(); }
+function explorePage(delta) { exploreState.page += delta; loadExplore(false); }
+
+function exportEntities() {
+  const p = new URLSearchParams({
+    type:   exploreState.type,
+    q:      exploreState.q,
+    doc_id: exploreState.doc_id,
+  });
+  window.location.href = '/api/explore/entities/export?' + p;
+}
+
+function debounceExplore(val) {
+  clearTimeout(exploreState.debounceTimer);
+  exploreState.debounceTimer = setTimeout(() => {
+    exploreState.q = val;
+    loadExplore();
+  }, 300);
+}
+
+// ── ADD MODAL ─────────────────────────────────────────────────────
+function openAddModal() {
+  selectedFiles = [];
+  document.getElementById('pathInput').value = '';
+  document.getElementById('selected-files').textContent = '';
+  document.getElementById('modal').style.display = 'block';
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modal').firstElementChild) {
+    document.getElementById('modal').style.display = 'none';
+  }
+}
+
+// ── TOAST ─────────────────────────────────────────────────────────
+function showToast(message, type = 'info') {
+  const wrap = document.getElementById('toast-wrap');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = message;
+  wrap.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+// ── FIRST-RUN WELCOME ─────────────────────────────────────────────
+async function checkFirstRun() {
+  if (localStorage.getItem('locallab_welcomed')) return;
+  try {
+    const res  = await fetch('/api/files');
+    const data = await res.json();
+    if ((data.documents || []).length === 0) {
+      const overlay = document.getElementById('welcome-overlay');
+      overlay.style.display = 'flex';
+      // Set logo based on theme
+      document.getElementById('welcome-logo').src = logoSrc();
+    }
+  } catch(_) {}
+}
+function dismissWelcome() {
+  localStorage.setItem('locallab_welcomed', '1');
+  document.getElementById('welcome-overlay').style.display = 'none';
+}
+
+// ── DYNAMIC SUGGESTIONS ───────────────────────────────────────────
+async function loadSuggestions() {
+  try {
+    const res  = await fetch('/api/suggestions');
+    const data = await res.json();
+    const sugs = data.suggestions || [];
+    if (!sugs.length) return;
+    // Update both suggestion containers (empty state + sidebar)
+    ['suggestions', 'suggestions-sidebar'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = sugs.map(q =>
+        `<button class="suggestion" onclick="fillQ(this)">${escHtml(q)}</button>`
+      ).join('');
+    });
+  } catch(_) {}
+}
+
+// ── DELETE FILE ────────────────────────────────────────────────────
+async function deleteFile(docId, filename) {
+  if (!confirm(`Remove "${filename}" from your library?\n\nThis deletes all extracted chunks and entities. The original file is NOT deleted.`)) return;
+  try {
+    const res = await fetch(`/api/files/${docId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Removed: ${filename}`, 'success');
+      loadFiles();
+    } else {
+      showToast(`Error: ${data.error}`, 'error');
+    }
+  } catch(e) {
+    showToast('Failed to delete file', 'error');
+  }
+}
+
+// ── FILE VIEWER ────────────────────────────────────────────────────
+async function openFileViewer(docId) {
+  const modal = document.getElementById('file-viewer-modal');
+  modal.style.display = 'block';
+  document.getElementById('fv-filename').textContent = 'Loading…';
+  document.getElementById('fv-meta').textContent = '';
+  document.getElementById('fv-chunks-pane').innerHTML =
+    '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Loading…</div>';
+  document.getElementById('fv-entities-pane').innerHTML = '';
+  fvSwitchTab('chunks');
+
+  try {
+    const res  = await fetch(`/api/files/${docId}`);
+    const data = await res.json();
+    const doc  = data.document;
+
+    document.getElementById('fv-filename').textContent = doc.filename;
+    const sizeMb = doc.file_size ? (doc.file_size / 1024 / 1024).toFixed(2) + ' MB · ' : '';
+    document.getElementById('fv-meta').textContent =
+      `${sizeMb}${doc.page_count || 0} pages · ${data.chunks.length} chunks · ${data.entities.length} entities`;
+
+    // Chunks pane
+    document.getElementById('fv-chunks-pane').innerHTML = data.chunks.length
+      ? data.chunks.map(c => `
+          <div class="fv-chunk">
+            <div class="fv-chunk-meta">Page ${c.page_start}${c.page_end !== c.page_start ? '–' + c.page_end : ''} · Chunk ${c.chunk_index}</div>
+            <div>${escHtml(c.text)}</div>
+          </div>`).join('')
+      : '<div style="color:var(--text3);font-size:13px;padding:12px 0">No chunks indexed yet.</div>';
+
+    // Entities pane
+    document.getElementById('fv-entities-pane').innerHTML = data.entities.length
+      ? data.entities.map(e => `
+          <div class="fv-entity">
+            <div class="fv-etype">${escHtml(e.entity_type || '')}</div>
+            <div>
+              <div class="fv-evalue">${escHtml(e.value || '')}</div>
+              ${e.context ? `<div class="fv-econtext">${escHtml(e.context)}</div>` : ''}
+            </div>
+          </div>`).join('')
+      : '<div style="color:var(--text3);font-size:13px;padding:12px 0">No entities extracted yet.</div>';
+
+  } catch(err) {
+    document.getElementById('fv-chunks-pane').innerHTML =
+      `<div style="color:var(--text3);font-size:13px">Error: ${escHtml(String(err))}</div>`;
+  }
+}
+
+function closeFileViewer(e) {
+  if (!e || e.target === document.querySelector('#file-viewer-modal .modal-overlay')) {
+    document.getElementById('file-viewer-modal').style.display = 'none';
+  }
+}
+
+function fvSwitchTab(tab) {
+  document.getElementById('fv-chunks-pane').style.display   = tab === 'chunks'   ? 'block' : 'none';
+  document.getElementById('fv-entities-pane').style.display = tab === 'entities' ? 'block' : 'none';
+  document.getElementById('fv-tab-chunks').classList.toggle('active',   tab === 'chunks');
+  document.getElementById('fv-tab-entities').classList.toggle('active', tab === 'entities');
+}
+
+// ── EXPORT DROPDOWN ────────────────────────────────────────────────
+function toggleExportMenu(e) {
+  e.stopPropagation();
+  document.getElementById('export-menu').classList.toggle('open');
+}
+document.addEventListener('click', () => {
+  const m = document.getElementById('export-menu');
+  if (m) m.classList.remove('open');
+});
+function doExport(fmt) {
+  document.getElementById('export-menu').classList.remove('open');
+  window.location.href = `/api/export/${fmt}`;
+}
+
+function handleFileSelect(input) {
+  selectedFiles = Array.from(input.files);
+  document.getElementById('selected-files').textContent = selectedFiles.length
+    ? `${selectedFiles.length} file${selectedFiles.length===1?'':'s'} selected: ${selectedFiles.map(f=>f.name).join(', ')}`
+    : '';
+}
+
+async function submitIngest() {
+  const pathInput = document.getElementById('pathInput').value.trim();
+  const btn = document.getElementById('ingest-btn');
+  btn.textContent = 'Adding…';
+  btn.disabled    = true;
+
+  try {
+    let data;
+
+    if (selectedFiles.length > 0) {
+      // Upload actual file bytes via multipart
+      const form = new FormData();
+      selectedFiles.forEach(f => form.append('files', f));
+      const res = await fetch('/api/upload', { method: 'POST', body: form });
+      data = await res.json();
+    } else if (pathInput) {
+      // Folder path — server resolves locally
+      const res = await fetch('/api/ingest', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({paths: [pathInput]}),
+      });
+      data = await res.json();
+    } else {
+      showToast('Please select files or enter a folder path.', 'error');
+      return;
+    }
+
+    closeModal();
+    switchView('queue');
+    startQueuePoll();
+
+    const msg = `${data.queued} file${data.queued===1?'':'s'} added to queue.` +
+      (data.skipped ? ` (${data.skipped} already indexed)` : '') +
+      (data.errors && data.errors.length ? ` Errors: ${data.errors.join(', ')}` : '');
+    showToast(msg, data.queued > 0 ? 'success' : 'info');
+
+  } catch(e) {
+    showToast('Error: ' + e, 'error');
+  } finally {
+    selectedFiles = [];
+    btn.textContent = 'Add to queue';
+    btn.disabled    = false;
+  }
+}
+
+// ── UTILS ─────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+// ── INIT ──────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const res  = await fetch('/api/files');
+    const data = await res.json();
+    document.getElementById('files-count').textContent = data.total || '0';
+
+    const qres  = await fetch('/api/ingest/status');
+    const qdata = await qres.json();
+    const active = (qdata.pending||[]).length + (qdata.processing||[]).length;
+    document.getElementById('queue-count').textContent = active || '0';
+    if (active > 0) startQueuePoll();
+  } catch(e) {}
+  loadModels();
+  loadSuggestions();
+  checkFirstRun();
+})();
+</script>
+</body>
+</html>
