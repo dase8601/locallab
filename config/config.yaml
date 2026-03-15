@@ -17,6 +17,11 @@ retrieval:
   top_k: 5
   threshold: 0.7
 
+vision:
+  # Pages with fewer characters than this trigger the vision (OCR) model.
+  # 30 = standard text PDFs  |  200 = slide decks with sparse text
+  page_chars_min: 30
+
 eval:
   spans_per_doc: 5
   counterfactual: true

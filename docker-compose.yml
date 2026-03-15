@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  locallab:
+    build: .
+    ports:
+      - "5001:5001"
+    volumes:
+      # Persist the database, vector store, and uploads across restarts
+      - ./db:/app/db
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./config:/app/config
+    environment:
+      # Point at Ollama running on the host machine
+      - OLLAMA_URL=http://host.docker.internal:11434
+    extra_hosts:
+      # Required on Linux so host.docker.internal resolves to the host
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

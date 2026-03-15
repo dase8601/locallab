@@ -1389,6 +1389,206 @@ def api_ollama_status():
         return ok({"online": False, "error": str(e)})
 
 
+# ── CONFIG SETTINGS ────────────────────────────────────────────────
+
+@app.route("/api/config/settings", methods=["GET"])
+def api_config_get():
+    """GET /api/config/settings — return current editable settings."""
+    try:
+        import yaml
+        with open(BASE_DIR / "config" / "config.yaml") as f:
+            cfg = yaml.safe_load(f)
+        return ok({
+            "vision_page_chars_min": cfg.get("vision", {}).get("page_chars_min", 30),
+        })
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/config/settings", methods=["POST"])
+def api_config_set():
+    """POST /api/config/settings — update editable settings in config.yaml."""
+    try:
+        import yaml
+        data = request.get_json(silent=True) or {}
+        cfg_path = BASE_DIR / "config" / "config.yaml"
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+
+        if "vision_page_chars_min" in data:
+            val = int(data["vision_page_chars_min"])
+            if not (5 <= val <= 500):
+                return err("vision_page_chars_min must be 5–500")
+            cfg.setdefault("vision", {})["page_chars_min"] = val
+
+        with open(cfg_path, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+
+        return ok({"saved": True})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+# ── PER-DOCUMENT EXPORT ────────────────────────────────────────────
+
+@app.route("/api/files/<int:doc_id>/export/json", methods=["GET"])
+def api_file_export_json(doc_id):
+    """GET /api/files/<id>/export/json — download doc + chunks + entities as JSON."""
+    import json as _json
+    from flask import Response
+    try:
+        conn = get_conn()
+        doc = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+        if not doc:
+            conn.close()
+            return err("Not found", 404)
+
+        chunks   = conn.execute(
+            "SELECT chunk_index, page_start, page_end, text FROM chunks WHERE doc_id=? ORDER BY chunk_index",
+            (doc_id,)
+        ).fetchall()
+        entities = conn.execute(
+            "SELECT entity_type, value, context, page_number FROM entities WHERE doc_id=? ORDER BY page_number, id",
+            (doc_id,)
+        ).fetchall()
+        conn.close()
+
+        payload = {
+            "document": dict(doc),
+            "chunks":   [dict(c) for c in chunks],
+            "entities": [dict(e) for e in entities],
+        }
+        filename = Path(doc["filename"]).stem + "_export.json"
+        return Response(
+            _json.dumps(payload, indent=2, ensure_ascii=False, default=str),
+            mimetype="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/files/<int:doc_id>/export/csv", methods=["GET"])
+def api_file_export_csv(doc_id):
+    """GET /api/files/<id>/export/csv — download entities as CSV."""
+    import csv, io
+    from flask import Response
+    try:
+        conn = get_conn()
+        doc = conn.execute("SELECT filename FROM documents WHERE id=?", (doc_id,)).fetchone()
+        if not doc:
+            conn.close()
+            return err("Not found", 404)
+
+        entities = conn.execute(
+            "SELECT entity_type, value, context, page_number FROM entities WHERE doc_id=? ORDER BY page_number, id",
+            (doc_id,)
+        ).fetchall()
+        conn.close()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["entity_type", "value", "context", "page_number"])
+        for e in entities:
+            writer.writerow([e["entity_type"], e["value"], e["context"], e["page_number"]])
+
+        filename = Path(doc["filename"]).stem + "_entities.csv"
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    except Exception as e:
+        return err(str(e), 500)
+
+
+# ── FILE TAGS ──────────────────────────────────────────────────────
+
+@app.route("/api/files/<int:doc_id>/tags", methods=["POST"])
+def api_file_set_tags(doc_id):
+    """POST /api/files/<id>/tags  body: {tags: "work, legal"} — set document tags."""
+    try:
+        data = request.get_json(silent=True) or {}
+        tags = str(data.get("tags", "")).strip()
+        conn = get_conn()
+        conn.execute("UPDATE documents SET tags=? WHERE id=?", (tags, doc_id))
+        conn.commit()
+        conn.close()
+        return ok({"saved": True, "tags": tags})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+# ── EVAL ──────────────────────────────────────────────────────────
+
+@app.route("/api/eval/run", methods=["POST"])
+def api_eval_run():
+    """POST /api/eval/run — build eval set + run scoring in subprocess."""
+    import subprocess, threading
+
+    def _run():
+        try:
+            venv_python = BASE_DIR / "venv" / "bin" / "python"
+            python = str(venv_python) if venv_python.exists() else sys.executable
+            eval_script = BASE_DIR / "core" / "eval.py"
+            subprocess.run(
+                [python, str(eval_script)],
+                cwd=str(BASE_DIR),
+                timeout=300,
+            )
+        except Exception as e:
+            print(f"[eval] subprocess error: {e}")
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return ok({"started": True, "message": "Evaluation running in background. Refresh Insights in ~60s."})
+
+
+@app.route("/api/eval/results", methods=["GET"])
+def api_eval_results():
+    """GET /api/eval/results — latest eval run summary."""
+    try:
+        conn = get_conn()
+        total = conn.execute("SELECT COUNT(*) FROM eval_results").fetchone()[0]
+        if total == 0:
+            conn.close()
+            return ok({"run_count": 0, "results": []})
+
+        summary = conn.execute("""
+            SELECT
+                COUNT(*)                             AS total,
+                AVG(entity_match_score)              AS avg_entity,
+                AVG(source_match_score)              AS avg_source,
+                AVG(grounding_score)                 AS avg_grounding,
+                MAX(run_at)                          AS last_run
+            FROM eval_results
+        """).fetchone()
+
+        by_doc = conn.execute("""
+            SELECT d.filename,
+                   COUNT(er.id)                  AS questions,
+                   AVG(er.entity_match_score)    AS avg_entity,
+                   AVG(er.grounding_score)       AS avg_grounding
+            FROM eval_results er
+            JOIN eval_questions eq ON er.question_id = eq.id
+            JOIN documents d       ON eq.doc_id = d.id
+            GROUP BY d.id
+            ORDER BY avg_grounding DESC
+        """).fetchall()
+
+        conn.close()
+        return ok({
+            "run_count":    summary["total"],
+            "avg_entity":   round(summary["avg_entity"] or 0, 3),
+            "avg_source":   round(summary["avg_source"] or 0, 3),
+            "avg_grounding": round(summary["avg_grounding"] or 0, 3),
+            "last_run":     summary["last_run"] or "",
+            "by_doc":       [dict(r) for r in by_doc],
+        })
+    except Exception as e:
+        return err(str(e), 500)
+
+
 # ── MAIN ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

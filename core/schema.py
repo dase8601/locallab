@@ -269,6 +269,7 @@ def migrate_db(conn):
             "exported_at":    "TEXT DEFAULT ''",
             "questions":      "TEXT DEFAULT '[]'",
             "summary":        "TEXT DEFAULT ''",
+            "tags":           "TEXT DEFAULT ''",
         }
 
         for col, definition in new_cols.items():

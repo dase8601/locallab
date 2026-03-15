@@ -66,6 +66,18 @@ EMBED_URL     = "http://localhost:11434/api/embeddings"
 # entity extraction is skipped (nothing useful to extract).
 SPARSE_THRESHOLD = 300
 
+CONFIG_PATH = BASE_DIR / "config" / "config.yaml"
+
+def _get_vision_threshold() -> int:
+    """Read the per-page vision trigger threshold from config.yaml."""
+    try:
+        import yaml
+        with open(CONFIG_PATH) as f:
+            cfg = yaml.safe_load(f)
+        return int(cfg.get("vision", {}).get("page_chars_min", 30))
+    except Exception:
+        return 30
+
 # Documents longer than this skip entity extraction regardless of density.
 # A 600-page textbook doesn't benefit enough to justify the runtime cost.
 MAX_ENTITY_PAGES = 100
@@ -248,6 +260,7 @@ def read_pdf_pages(filepath):
 
 def _read_pdf_fitz(filepath):
     import fitz
+    vision_threshold = _get_vision_threshold()
     doc   = fitz.open(str(filepath))
     pages = []
     for i in range(len(doc)):
@@ -258,7 +271,7 @@ def _read_pdf_fitz(filepath):
             print(f"  [page {page_num}] fitz error ({type(e).__name__}), skipping")
             continue
 
-        if len(text.strip()) < 30:
+        if len(text.strip()) < vision_threshold:
             print(f"  [page {page_num}] scanned, using vision...", end=" ", flush=True)
             text = read_page_with_vision(filepath, page_num) or ""
             print(f"{len(text)} chars")
@@ -275,6 +288,7 @@ def _read_pdf_fitz(filepath):
 def _read_pdf_pypdf(filepath):
     import warnings
     from pypdf import PdfReader
+    vision_threshold = _get_vision_threshold()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         reader = PdfReader(str(filepath))
@@ -288,7 +302,7 @@ def _read_pdf_pypdf(filepath):
             print(f"  [page {page_num}] extract error ({type(e).__name__}), skipping")
             continue
 
-        if len(text.strip()) < 30:
+        if len(text.strip()) < vision_threshold:
             print(f"  [page {page_num}] scanned, using vision...", end=" ", flush=True)
             text = read_page_with_vision(filepath, page_num) or ""
             print(f"{len(text)} chars")
@@ -970,7 +984,8 @@ def list_documents(conn):
     rows = conn.execute("""
         SELECT id, filename, file_type, file_size, page_count,
                chunk_count, entity_count, date_indexed, status,
-               COALESCE(summary, '') AS summary
+               COALESCE(summary, '') AS summary,
+               COALESCE(tags, '')    AS tags
         FROM documents ORDER BY id DESC
     """).fetchall()
     return [dict(r) for r in rows]
