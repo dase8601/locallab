@@ -117,14 +117,26 @@ def worker_loop():
                  "--job-id", str(job["id"]),
                  "--filepath", job["filepath"]],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 text=True
             )
 
-            # Stream output to console
+            # Stream stdout to console in real time
+            stderr_lines = []
+            import threading as _threading
+            def _drain_stderr():
+                for line in proc.stderr:
+                    stderr_lines.append(line)
+                    print(f"[ingest-err] {line}", end="", flush=True)
+            _t = _threading.Thread(target=_drain_stderr, daemon=True)
+            _t.start()
             for line in proc.stdout:
                 print(line, end="", flush=True)
             proc.wait()
+            _t.join(timeout=2)
+
+            stderr_text = "".join(stderr_lines).strip()
+            error_msg = (stderr_text[-400:] if stderr_text else "Ingestion process failed")
 
             # Mark done or failed based on exit code
             final_conn = get_conn()
@@ -137,9 +149,9 @@ def worker_loop():
             else:
                 final_conn.execute(
                     "UPDATE ingest_jobs SET status='failed', "
-                    "error_message='Ingestion process failed', "
+                    "error_message=?, "
                     "finished_at=? WHERE id=?",
-                    (time.strftime("%Y-%m-%dT%H:%M:%SZ"), job["id"])
+                    (error_msg, time.strftime("%Y-%m-%dT%H:%M:%SZ"), job["id"])
                 )
             final_conn.commit()
             final_conn.close()
@@ -996,7 +1008,7 @@ def api_delete_file(doc_id):
             from qdrant_client.models import Filter, FieldCondition, MatchValue
             qdrant = QdrantClient(path=str(BASE_DIR / "db" / "qdrant"))
             qdrant.delete(
-                collection_name="done_docs",
+                collection_name="locallab",
                 points_selector=Filter(
                     must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
                 ),
@@ -1005,6 +1017,118 @@ def api_delete_file(doc_id):
             pass  # Qdrant may not have this doc; not fatal
 
         return ok({"deleted": doc_id, "filename": doc["filename"]})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/files/<int:doc_id>/reindex", methods=["POST"])
+def api_reindex_file(doc_id):
+    """POST /api/files/<id>/reindex — wipe and re-queue a document."""
+    try:
+        conn = get_conn()
+        doc = conn.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
+        if not doc:
+            conn.close()
+            return err("Document not found", 404)
+        doc = dict(doc)
+
+        conn.execute("DELETE FROM chunks   WHERE doc_id=?", (doc_id,))
+        conn.execute("DELETE FROM entities WHERE doc_id=?", (doc_id,))
+        conn.execute(
+            "UPDATE documents SET status='pending', chunk_count=0, entity_count=0 WHERE id=?",
+            (doc_id,)
+        )
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        existing = conn.execute(
+            "SELECT id FROM ingest_jobs WHERE filepath=?", (doc["filepath"],)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE ingest_jobs SET status='pending', error_message='', "
+                "started_at='', finished_at='', progress_page=0 WHERE id=?",
+                (existing["id"],)
+            )
+        else:
+            est = estimate_job(Path(doc["filepath"]))
+            conn.execute("""
+                INSERT INTO ingest_jobs
+                (filepath, filename, status, priority, page_count, file_size_mb, estimated_secs, created_at)
+                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)
+            """, (doc["filepath"], doc["filename"],
+                  est.get("priority", 2), est.get("page_count", 0),
+                  est.get("size_mb", 0), est.get("estimated_secs", 0), now))
+        conn.commit()
+        conn.close()
+
+        # Remove stale Qdrant vectors
+        try:
+            from qdrant_client import QdrantClient
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            qdrant = QdrantClient(path=str(BASE_DIR / "db" / "qdrant"))
+            qdrant.delete(
+                collection_name="locallab",
+                points_selector=Filter(
+                    must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
+                ),
+            )
+        except Exception:
+            pass
+
+        return ok({"doc_id": doc_id, "filename": doc["filename"]})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/watch/folders", methods=["GET"])
+def api_watch_folders_list():
+    """GET /api/watch/folders — list configured watch folders."""
+    try:
+        import yaml
+        cfg_path = BASE_DIR / "config" / "config.yaml"
+        cfg = yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
+        folders = cfg.get("watch", {}).get("folders", [])
+        return ok({"folders": folders})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/watch/folders", methods=["POST"])
+def api_watch_folders_add():
+    """POST /api/watch/folders — add a folder to the watch list."""
+    data   = request.get_json(silent=True) or {}
+    folder = (data.get("folder") or "").strip()
+    if not folder:
+        return err("folder is required")
+    p = Path(folder).expanduser().resolve()
+    if not p.exists() or not p.is_dir():
+        return err(f"Directory not found: {folder}")
+    try:
+        import yaml
+        cfg_path = BASE_DIR / "config" / "config.yaml"
+        cfg = yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
+        folders = cfg.setdefault("watch", {}).setdefault("folders", [])
+        if str(p) not in folders:
+            folders.append(str(p))
+            cfg_path.write_text(yaml.dump(cfg, default_flow_style=False))
+        return ok({"folders": folders})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/watch/folders/<int:idx>", methods=["DELETE"])
+def api_watch_folders_remove(idx):
+    """DELETE /api/watch/folders/<idx> — remove a watch folder by index."""
+    try:
+        import yaml
+        cfg_path = BASE_DIR / "config" / "config.yaml"
+        cfg = yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
+        folders = cfg.get("watch", {}).get("folders", [])
+        if idx < 0 or idx >= len(folders):
+            return err("Index out of range")
+        removed = folders.pop(idx)
+        cfg_path.write_text(yaml.dump(cfg, default_flow_style=False))
+        return ok({"removed": removed, "folders": folders})
     except Exception as e:
         return err(str(e), 500)
 
@@ -1196,6 +1320,18 @@ def api_health():
     })
 
 
+@app.route("/api/ollama/status", methods=["GET"])
+def api_ollama_status():
+    """GET /api/ollama/status — check if Ollama is reachable."""
+    try:
+        import ollama as _ollama
+        models = _ollama.list()
+        count = len(models.models or [])
+        return ok({"online": True, "model_count": count})
+    except Exception as e:
+        return ok({"online": False, "error": str(e)})
+
+
 # ── MAIN ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -1214,8 +1350,8 @@ if __name__ == "__main__":
     _start_watch_folders()
 
     app.run(
-        host="127.0.0.1",
-        port=5000,
+        host="0.0.0.0",
+        port=5001,
         debug=False,  # debug=True breaks background threads
         threaded=True,
     )

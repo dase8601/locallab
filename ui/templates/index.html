@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>locallab</title>
 <meta name="description" content="Private AI for your files. Ask questions about your documents — 100% local, zero cloud.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2310b981'/><text x='5' y='24' font-size='22' font-weight='bold' fill='white' font-family='system-ui'>L</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='white'/><text x='16' y='16' font-size='22' font-weight='bold' fill='black' font-family='system-ui' text-anchor='middle' dominant-baseline='central'>ll</text></svg>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous">
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -365,15 +365,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <option value="">Loading…</option>
       </select>
     </div>
+    <button class="theme-toggle" onclick="openWatchModal()" style="margin-bottom:8px">
+      <span>Watch folders</span>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    </button>
     <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn">
       <span id="theme-toggle-label">Light mode</span>
       <div class="toggle-track" id="theme-track">
         <div class="toggle-knob"></div>
       </div>
     </button>
-    <div class="status-pill">
-      <div class="status-dot"></div>
-      Running locally · Private
+    <div class="status-pill" id="ollama-status-pill">
+      <div class="status-dot" id="ollama-dot"></div>
+      <span id="ollama-label">Checking Ollama…</span>
     </div>
   </div>
 </aside>
@@ -387,12 +391,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div class="empty-state" id="emptyState">
           <div class="empty-logo"><img id="empty-logo-img" src="/static/noback.png" alt="locallab"></div>
           <div class="empty-tagline">Ask anything about your documents</div>
-          <div class="empty-suggestions" id="suggestions">
-            <button class="suggestion" onclick="fillQ(this)">What are the key skills in this resume?</button>
-            <button class="suggestion" onclick="fillQ(this)">Who is listed as the primary contact?</button>
-            <button class="suggestion" onclick="fillQ(this)">What companies are mentioned?</button>
-            <button class="suggestion" onclick="fillQ(this)">Summarise the work history</button>
-          </div>
         </div>
       </div>
     </div>
@@ -446,9 +444,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
     <div class="view-content">
       <div class="stats-row" id="file-stats"></div>
+      <div style="margin-bottom:10px">
+        <input type="text" id="files-search" placeholder="Filter files…"
+          oninput="filterFiles(this.value)"
+          style="width:100%;padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--text);font-family:inherit;font-size:13px;outline:none">
+      </div>
       <div class="files-table">
         <div class="files-table-header">
-          <span>Name</span><span>Type</span><span>Pages</span><span>Status</span><span>Entities</span>
+          <span>Name</span><span>Type</span><span>Pages</span><span>Status</span><span>Actions</span>
         </div>
         <div id="files-list"><div class="empty-table">Loading…</div></div>
       </div>
@@ -702,15 +705,8 @@ function newChat() {
     <div class="empty-state" id="emptyState">
       <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
       <div class="empty-tagline">Ask anything about your documents</div>
-      <div class="empty-suggestions" id="suggestions-sidebar">
-        <button class="suggestion" onclick="fillQ(this)">What are the key skills in this resume?</button>
-        <button class="suggestion" onclick="fillQ(this)">Who is listed as the primary contact?</button>
-        <button class="suggestion" onclick="fillQ(this)">What companies are mentioned?</button>
-        <button class="suggestion" onclick="fillQ(this)">Summarise the work history</button>
-      </div>
     </div>`;
   document.getElementById('qInput').value = '';
-  loadSuggestions();
   conversationHistory = [];
   switchView('ask');
 }
@@ -752,7 +748,8 @@ function buildAnswerSkeleton(q, meta, thinkId, fbId, panelId) {
       data-source="${escHtml(meta.source_file||'')}"
       data-conf="${conf}">
       <span class="feedback-label">Was this helpful?</span>
-      ${meta.model ? `<span class="model-tag" style="margin-left:auto" title="Model used"><i class="fa-solid fa-microchip" style="font-size:10px;opacity:.7"></i>${escHtml(meta.model)}</span>` : ''}
+      ${meta.model ? `<span class="model-tag" style="margin-left:auto" title="Model used"><i class="fa-solid fa-microchip" style="font-size:10px;opacity:.7"></i>${escHtml(meta.model)}</span>` : '<span style="flex:1"></span>'}
+      <button class="thumb-btn" title="Copy answer" onclick="copyAnswer('${thinkId}',this)" style="font-size:12px"><i class="fa-regular fa-copy"></i></button>
       <button class="thumb-btn up"   title="Helpful"     onclick="submitFeedback(this,'up')"><i class="fa-solid fa-thumbs-up"></i></button>
       <button class="thumb-btn down" title="Not helpful" onclick="submitFeedback(this,'down')"><i class="fa-solid fa-thumbs-down"></i></button>
     </div>`;
@@ -841,14 +838,26 @@ async function sendQ() {
   if (recentQs.length > 6) recentQs.pop();
   renderRecent();
   conversationHistory.push({role: 'user', content: q});
+  saveHistory();
 
   let fullAnswer = '';
   let metaReceived = false;
+
+  const controller = new AbortController();
+  const TIMEOUT_MS = 45000;
+  let silenceTimer  = null;
+
+  const resetSilence = () => {
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => controller.abort('silence'), TIMEOUT_MS);
+  };
+  resetSilence(); // start the clock immediately
 
   try {
     const res = await fetch('/api/ask/stream', {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
+      signal:  controller.signal,
       body:    JSON.stringify({
         question:     q,
         conversation: conversationHistory.slice(-11, -1),
@@ -857,9 +866,9 @@ async function sendQ() {
     });
     if (!res.ok) throw new Error(`Server error ${res.status}`);
 
-    const reader  = res.body.getReader();
-    const decoder = new TextDecoder();
-    let   buffer  = '';
+    const reader     = res.body.getReader();
+    const decoder    = new TextDecoder();
+    let   buffer     = '';
 
     const parseSSE = (raw) => {
       buffer += raw;
@@ -883,6 +892,7 @@ async function sendQ() {
       const events = parseSSE(decoder.decode(value, {stream: true}));
 
       for (const ev of events) {
+        resetSilence(); // reset 45s silence timer on every event
         if (ev.type === 'meta') {
           const meta = JSON.parse(ev.data);
           metaReceived = true;
@@ -904,6 +914,7 @@ async function sendQ() {
           const fbRow = document.getElementById(fbId);
           if (fbRow) fbRow.dataset.answer = fullAnswer;
           conversationHistory.push({role: 'assistant', content: fullAnswer});
+          saveHistory();
           // Update source badge with the file the LLM actually cited
           // and filter sources panel to only show that file's chunks
           try {
@@ -926,6 +937,7 @@ async function sendQ() {
               }
             }
           } catch(_) {}
+          clearTimeout(silenceTimer);
           scrollChat();
           break;
 
@@ -936,12 +948,22 @@ async function sendQ() {
     }
 
   } catch(e) {
+    clearTimeout(silenceTimer);
     conversationHistory.pop();
-    document.getElementById(thinkId).innerHTML = `
-      <div class="msg-role">locallab</div>
-      <div class="answer-card">
-        <div class="answer-body" style="color:var(--red)">Error: ${escHtml(String(e))}</div>
-      </div>`;
+    const isTimeout = e.name === 'AbortError';
+    const msg = isTimeout
+      ? 'The model took too long to respond. Try a shorter question or check that Ollama is running.'
+      : `Error: ${escHtml(String(e))}`;
+    const bodyEl = document.getElementById('ab-' + thinkId);
+    if (bodyEl) {
+      bodyEl.innerHTML = `<span style="color:var(--text3);font-style:italic">${msg}</span>`;
+    } else {
+      document.getElementById(thinkId).innerHTML = `
+        <div class="msg-role">locallab</div>
+        <div class="answer-card">
+          <div class="answer-body" style="color:var(--red)">${msg}</div>
+        </div>`;
+    }
   }
 
   isAsking = false;
@@ -1033,27 +1055,8 @@ async function loadFiles() {
       return;
     }
 
-    list.innerHTML = docs.map(d => {
-      const ext  = (d.file_type||'').replace('.','').toLowerCase();
-      const icon = ['pdf','doc','docx','img','csv','xlsx','txt','md'].includes(ext) ? ext : 'txt';
-      return `
-        <div class="file-row" style="cursor:pointer" onclick="openFileViewer(${d.id})">
-          <div class="file-name">
-            <div class="file-icon ${icon}">${ext.toUpperCase().slice(0,3)}</div>
-            ${escHtml(d.filename)}
-          </div>
-          <div class="file-meta">${(d.file_type||'').toUpperCase()}</div>
-          <div class="file-meta">${d.page_count||'—'}</div>
-          <div><span class="badge ${d.status==='indexed'?'indexed':'indexing'}">${d.status==='indexed'?'✓ Indexed':'⟳ Indexing'}</span></div>
-          <div class="file-meta" style="display:flex;align-items:center;justify-content:space-between">
-            ${(d.entity_count||0).toLocaleString()}
-            <button class="file-delete-btn" title="Remove from library"
-              onclick="event.stopPropagation();deleteFile(${d.id},'${escHtml(d.filename).replace(/'/g,"\\'")}')">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-            </button>
-          </div>
-        </div>`;
-    }).join('');
+    _allFileDocs = docs;
+    list.innerHTML = docs.map(d => renderFileRow(d)).join('');
 
   } catch(e) {
     list.innerHTML = `<div class="empty-table">Error loading files: ${escHtml(String(e))}</div>`;
@@ -1594,6 +1597,200 @@ function escHtml(str) {
     .replace(/"/g,'&quot;');
 }
 
+// ── OLLAMA STATUS ─────────────────────────────────────────────────
+async function checkOllamaStatus() {
+  try {
+    const res  = await fetch('/api/ollama/status');
+    const data = await res.json();
+    const dot  = document.getElementById('ollama-dot');
+    const lbl  = document.getElementById('ollama-label');
+    const pill = document.getElementById('ollama-status-pill');
+    if (data.online) {
+      dot.style.background  = 'var(--green)';
+      pill.style.background = 'var(--green-bg)';
+      pill.style.color      = 'var(--green)';
+      lbl.textContent = `Ollama · ${data.model_count} model${data.model_count===1?'':'s'}`;
+    } else {
+      dot.style.background  = 'var(--red)';
+      dot.style.animation   = 'none';
+      pill.style.background = 'var(--red-bg)';
+      pill.style.color      = 'var(--red)';
+      lbl.textContent = 'Ollama offline';
+    }
+  } catch(_) {
+    const lbl = document.getElementById('ollama-label');
+    if (lbl) lbl.textContent = 'Ollama offline';
+  }
+}
+
+// ── COPY ANSWER ───────────────────────────────────────────────────
+function copyAnswer(thinkId, btn) {
+  const bodyEl = document.getElementById('ab-' + thinkId);
+  if (!bodyEl) return;
+  const text = bodyEl.innerText || bodyEl.textContent || '';
+  navigator.clipboard.writeText(text.trim()).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+  }).catch(() => showToast('Copy failed', 'error'));
+}
+
+// ── RE-INDEX FILE ─────────────────────────────────────────────────
+async function reindexFile(docId, filename) {
+  showToast(`Re-indexing ${filename}…`, 'info');
+  try {
+    const res  = await fetch(`/api/files/${docId}/reindex`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Re-queued: ${filename}`, 'success');
+      loadFiles();
+      startQueuePoll();
+      switchView('queue');
+    } else {
+      showToast(`Error: ${data.error}`, 'error');
+    }
+  } catch(e) {
+    showToast('Re-index failed', 'error');
+  }
+}
+
+// ── FILES FILTER ──────────────────────────────────────────────────
+let _allFileDocs = [];
+function filterFiles(q) {
+  const term = q.toLowerCase().trim();
+  const list = document.getElementById('files-list');
+  if (!_allFileDocs.length) return;
+  const filtered = term ? _allFileDocs.filter(d => d.filename.toLowerCase().includes(term)) : _allFileDocs;
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-table">No files match "${escHtml(q)}"</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(d => renderFileRow(d)).join('');
+}
+
+function renderFileRow(d) {
+  const ext  = (d.file_type||'').replace('.','').toLowerCase();
+  const icon = ['pdf','doc','docx','img','csv','xlsx','txt','md'].includes(ext) ? ext : 'txt';
+  return `
+    <div class="file-row" style="cursor:pointer" onclick="openFileViewer(${d.id})">
+      <div class="file-name">
+        <div class="file-icon ${icon}">${ext.toUpperCase().slice(0,3)}</div>
+        ${escHtml(d.filename)}
+      </div>
+      <div class="file-meta">${(d.file_type||'').toUpperCase()}</div>
+      <div class="file-meta">${d.page_count||'—'}</div>
+      <div><span class="badge ${d.status==='indexed'?'indexed':'indexing'}">${d.status==='indexed'?'✓ Indexed':'⟳ Indexing'}</span></div>
+      <div class="file-meta" style="display:flex;align-items:center;gap:4px;justify-content:flex-end">
+        <button class="file-delete-btn" title="Re-index"
+          onclick="event.stopPropagation();reindexFile(${d.id},'${escHtml(d.filename).replace(/'/g,"\\'")}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+        </button>
+        <button class="file-delete-btn" title="Remove from library"
+          onclick="event.stopPropagation();deleteFile(${d.id},'${escHtml(d.filename).replace(/'/g,"\\'")}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
+// ── KEYBOARD SHORTCUTS ────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Cmd/Ctrl+K — focus input
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    switchView('ask');
+    const inp = document.getElementById('qInput');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+  // Esc — close any open modal
+  if (e.key === 'Escape') {
+    document.getElementById('modal').style.display = 'none';
+    document.getElementById('file-viewer-modal').style.display = 'none';
+    const wo = document.getElementById('watch-modal');
+    if (wo) wo.style.display = 'none';
+  }
+});
+
+// ── WATCH FOLDER UI ───────────────────────────────────────────────
+async function openWatchModal() {
+  const modal = document.getElementById('watch-modal');
+  modal.style.display = 'block';
+  await refreshWatchFolders();
+}
+
+async function refreshWatchFolders() {
+  const list = document.getElementById('watch-folder-list');
+  try {
+    const res  = await fetch('/api/watch/folders');
+    const data = await res.json();
+    const folders = data.folders || [];
+    if (!folders.length) {
+      list.innerHTML = '<div style="font-size:12.5px;color:var(--text3);padding:4px 0">No folders watched yet.</div>';
+    } else {
+      list.innerHTML = folders.map((f, i) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span style="flex:1;font-size:12.5px;color:var(--text2);word-break:break-all">${escHtml(f)}</span>
+          <button class="file-delete-btn" style="opacity:1" title="Remove" onclick="removeWatchFolder(${i})">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>`).join('');
+    }
+  } catch(_) {
+    list.innerHTML = '<div style="color:var(--red);font-size:12.5px">Error loading folders</div>';
+  }
+}
+
+async function addWatchFolder() {
+  const inp = document.getElementById('watch-folder-input');
+  const folder = inp.value.trim();
+  if (!folder) return;
+  try {
+    const res  = await fetch('/api/watch/folders', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({folder}),
+    });
+    const data = await res.json();
+    if (data.success) {
+      inp.value = '';
+      showToast('Watch folder added', 'success');
+      await refreshWatchFolders();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch(e) {
+    showToast('Error: ' + e, 'error');
+  }
+}
+
+async function removeWatchFolder(idx) {
+  try {
+    const res  = await fetch(`/api/watch/folders/${idx}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Removed', 'success');
+      await refreshWatchFolders();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch(e) {
+    showToast('Error: ' + e, 'error');
+  }
+}
+
+// ── CHAT HISTORY PERSISTENCE ──────────────────────────────────────
+function saveHistory() {
+  try {
+    localStorage.setItem('locallab_history', JSON.stringify(conversationHistory.slice(-20)));
+  } catch(_) {}
+}
+function loadHistory() {
+  try {
+    const saved = localStorage.getItem('locallab_history');
+    if (saved) conversationHistory = JSON.parse(saved);
+  } catch(_) {}
+}
+
 // ── INIT ──────────────────────────────────────────────────────────
 (async () => {
   try {
@@ -1610,7 +1807,28 @@ function escHtml(str) {
   loadModels();
   loadSuggestions();
   checkFirstRun();
+  checkOllamaStatus();
+  setInterval(checkOllamaStatus, 60000);
+  loadHistory();
 })();
 </script>
+<!-- WATCH FOLDERS MODAL -->
+<div id="watch-modal" style="display:none">
+  <div class="modal-overlay" onclick="if(event.target===this)document.getElementById('watch-modal').style.display='none'">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">Watch folders</div>
+      <div class="modal-sub">locallab will automatically index new files added to these folders.</div>
+      <div id="watch-folder-list" style="margin-bottom:14px;min-height:40px"></div>
+      <input type="text" class="modal-input" id="watch-folder-input"
+        placeholder="/Users/yourname/Documents"
+        onkeydown="if(event.key==='Enter')addWatchFolder()">
+      <div class="modal-hint">Paste an absolute folder path. New files dropped there will be auto-indexed.</div>
+      <div class="modal-actions">
+        <button class="btn" onclick="document.getElementById('watch-modal').style.display='none'">Close</button>
+        <button class="btn primary" onclick="addWatchFolder()">Add folder</button>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
