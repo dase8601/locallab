@@ -92,7 +92,7 @@ def retrieve_chunks(question, top_k=TOP_K, filename_filter=None):
     client = QdrantClient(path=str(QDRANT_PATH))
 
     try:
-        info  = client.get_collection("done_docs")
+        info  = client.get_collection("locallab")
         count = info.points_count or 0
     except Exception:
         print("[query] No documents indexed yet. Run ingest.py first.")
@@ -115,7 +115,7 @@ def retrieve_chunks(question, top_k=TOP_K, filename_filter=None):
     actual_k = min(top_k, count)
 
     results = client.query_points(
-        collection_name="done_docs",
+        collection_name="locallab",
         query=dense_vec,
         using="dense",
         query_filter=qfilter,

@@ -130,8 +130,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 /* TASK CARDS */
 .task-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0 10px}
 .task-card{background:var(--bg2);border:1.5px solid var(--border);border-radius:var(--radius);padding:14px 16px;cursor:pointer;text-align:left;transition:all .15s;font-family:inherit;width:100%}
-.task-card:hover{border-color:var(--text2);background:var(--bg3)}
-.task-card.selected{border-color:var(--green);background:var(--green-bg)}
+.task-card:hover{border-color:var(--green);background:var(--green-bg);color:var(--text)}
+.task-card.selected{border-color:var(--green);background:var(--green);color:var(--bg)}
+.task-card.selected .task-card-name{color:var(--bg)}
+.task-card.selected .task-card-desc{color:var(--bg);opacity:.8}
 .task-card-icon{font-size:20px;margin-bottom:6px}
 .task-card-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px}
 .task-card-desc{font-size:12px;color:var(--text2);line-height:1.4}
@@ -174,9 +176,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 /* FILE TABLE */
 .files-table{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
 .files-table-header{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px;padding:10px 18px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);gap:12px}
-.file-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px;padding:13px 18px;border-bottom:1px solid var(--bg2);align-items:center;gap:12px;cursor:pointer;transition:background .1s}
+.file-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 80px;padding:13px 18px;border-bottom:1px solid var(--bg2);align-items:center;gap:12px;cursor:pointer;transition:background .1s,border-left .1s;border-left:3px solid transparent}
 .file-row:last-child{border-bottom:none}
-.file-row:hover{background:var(--bg)}
+.file-row:hover{background:var(--bg3);border-left-color:var(--green)}
 .file-name{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:500}
 .file-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
 .file-icon.pdf{background:rgba(220,38,38,.2);color:#fca5a5}
@@ -404,6 +406,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div class="empty-state" id="emptyState">
           <div class="empty-logo"><img id="empty-logo-img" src="/static/noback.png" alt="locallab"></div>
           <div class="empty-tagline">Ask anything about your documents</div>
+          <button class="btn primary" style="margin-top:16px;padding:10px 22px;font-size:13.5px" onclick="openAddModal()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add files to get started
+          </button>
         </div>
       </div>
     </div>
@@ -473,6 +479,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         </div>
         <div id="files-list"><div class="empty-table">Loading…</div></div>
       </div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:10px;text-align:right">Click any file to view chunks, entities, questions, and run tasks</div>
     </div>
   </div>
 
@@ -2061,7 +2068,6 @@ async function openTaskPicker() {
     const grid = document.getElementById('task-card-grid');
     grid.innerHTML = _taskPickerTasks.map(t => `
       <button class="task-card" onclick="selectTask('${t.id}',this)">
-        <div class="task-card-icon">${t.icon}</div>
         <div class="task-card-name">${escHtml(t.name)}</div>
         <div class="task-card-desc">${escHtml(t.description)}</div>
       </button>`).join('');
@@ -2125,7 +2131,6 @@ async function runTask(taskId, docIds) {
     <div class="message">
       <div class="msg-role">Task</div>
       <div class="msg-user" style="display:inline-flex;align-items:center;gap:8px">
-        <span>${task.icon}</span>
         <span><strong>${escHtml(task.name)}</strong> · ${escHtml(_currentFvFilename)}</span>
       </div>
     </div>`;
@@ -2189,7 +2194,6 @@ async function runTask(taskId, docIds) {
             <div class="msg-role">locallab</div>
             <div class="answer-card">
               <div class="task-result-header">
-                <span style="font-size:16px">${meta.task_icon}</span>
                 <strong style="color:var(--text)">${escHtml(meta.task_name)}</strong>
                 <span>·</span>
                 <span>${escHtml(docLabel)}</span>
