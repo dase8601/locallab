@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS documents (
     chunk_count       INTEGER DEFAULT 0,
     entity_count      INTEGER DEFAULT 0,
 
+    -- AI-generated metadata
+    questions         TEXT DEFAULT '[]',
+    summary           TEXT DEFAULT '',
+
     -- Provenance
     source_folder     TEXT DEFAULT '',
     date_modified     TEXT DEFAULT '',
@@ -263,6 +267,8 @@ def migrate_db(conn):
             "created_at":     f"TEXT NOT NULL DEFAULT '{now}'",
             "updated_at":     f"TEXT NOT NULL DEFAULT '{now}'",
             "exported_at":    "TEXT DEFAULT ''",
+            "questions":      "TEXT DEFAULT '[]'",
+            "summary":        "TEXT DEFAULT ''",
         }
 
         for col, definition in new_cols.items():

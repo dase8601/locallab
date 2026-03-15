@@ -27,6 +27,8 @@ When no relevant document exists, it falls back to a general Ollama chat assista
 | **Ingestion** | Qdrant hybrid search (dense + sparse BM25) | nomic-embed-text + fastembed |
 | **Ingestion** | Background worker with priority queue | Smallest files first |
 | **Ingestion** | Watch folder (watchdog) | Watches folders defined in config.yaml |
+| **Ingestion** | Auto-generated questions per doc | 4 questions with filename baked in |
+| **Ingestion** | Auto-generated 2-3 sentence summary | Stored in DB, shown in file viewer + hover tooltip |
 | **Query** | Streaming SSE answers (token-by-token) | AbortController 45s silence timeout |
 | **Query** | Dual-mode: document RAG + general Ollama chat | Threshold: similarity ≥ 0.40 → docs |
 | **Query** | Context re-ranking | All pages from top file promoted first |
@@ -35,19 +37,33 @@ When no relevant document exists, it falls back to a general Ollama chat assista
 | **Query** | Source citations with expandable panel | Per-chunk: file, page, similarity, snippet |
 | **Query** | Post-stream source filtering | Badge + panel update to cited file on `done` |
 | **Query** | Conversation history (multi-turn) | Last 10 turns passed to LLM |
-| **UI** | Ask / Files / Queue / Insights tabs | Single-page app |
-| **UI** | File viewer modal | Chunks + entities inspector, tabbed |
+| **UI** | Ask / Files / Queue / Insights / Explore tabs | Single-page app |
+| **UI** | File viewer modal | Chunks + entities + questions inspector, tabbed |
+| **UI** | Document summary in file viewer | Shown below filename; hover tooltip in Files view |
 | **UI** | Delete documents | Removes from SQLite + Qdrant |
+| **UI** | Re-index button per document | Per-row in Files view |
 | **UI** | Dark / light mode | Correct logos per theme, persisted |
 | **UI** | Feedback (thumbs up/down) | Saved to DB |
 | **UI** | First-run welcome overlay | Shows on zero documents |
 | **UI** | Toast notifications | Replaced all alert() calls |
 | **UI** | Drag-and-drop file upload | Drop zone on Ask view |
 | **UI** | Recent questions sidebar | Last 6 questions, click to re-ask |
+| **UI** | File search/filter bar | Filters by filename client-side |
+| **UI** | Model picker dropdown | All installed Ollama models, persisted |
+| **UI** | Ollama status badge | Green/red dot in sidebar footer, polled 60s |
+| **UI** | Watch folders modal | Add/remove watch folders from UI |
+| **UI** | Keyboard shortcuts | Cmd+K focus input, Esc close modals |
+| **UI** | Chat history persistence | localStorage, survives page reload |
+| **UI** | Copy answer button | One-click clipboard copy |
+| **Tasks** | 8 document task agents | Summarize, Action items, Dates, People, Financial, Risk, Draft reply, Compare |
+| **Tasks** | Task picker modal | Grid UI triggered from file viewer "Run a task →" |
+| **Tasks** | Streaming task results | SSE into Ask view, same protocol as /api/ask/stream |
 | **Export** | core/export.py complete | JSON, CSV zip, SQLite download |
 | **Export** | Flask routes wired | /api/export/json, /api/export/csv, /api/export/sqlite |
+| **Export** | Export dropdown in Files view | JSON / CSV / SQLite buttons |
 | **Infra** | install.sh | curl-installable, checks Ollama, pulls models |
 | **Infra** | README.md | Quickstart, architecture, privacy, models |
+| **Infra** | CONTRIBUTING.md | How to contribute, PR process, coding standards |
 | **Infra** | .gitignore | venv, db, uploads, logs excluded |
 | **Infra** | MIT License | |
 | **Infra** | GitHub: dase8601/locallab | Live |
@@ -60,47 +76,68 @@ When no relevant document exists, it falls back to a general Ollama chat assista
 
 | # | Feature | Why it matters | Status |
 |---|---|---|---|
-| 1.1 | **Scan folder UI** | Users have 100s of existing files — no way to bulk-index a folder from the UI today. Only the watch folder (new files) and manual drag-and-drop (one file at a time) exist. Need a "Scan folder" button that walks a directory and queues all supported files. | ❌ Not built |
-| 1.2 | **Add / remove watch folders from UI** | Watch folders are hardcoded in config.yaml — no UI to add or remove them. Users shouldn't have to edit YAML. | ❌ Not built |
-| 1.3 | **Re-index button per document** | If a file changes, user must delete + re-upload. Need a "Re-index" button that forces re-processing without losing the job history. | ❌ Not built |
-| 1.4 | **Vision threshold tunable** | Currently triggers vision at <30 chars. Slides need a higher threshold (~200 chars). Should be per-document or per-upload configurable. | ❌ Not built |
-| 1.5 | **Ollama connection status badge** | If Ollama is down, the user just gets a cryptic error or infinite hang. Show a small green/red dot in the sidebar footer indicating live Ollama status. | ❌ Not built |
-| 1.6 | **Export buttons in UI** | core/export.py and Flask routes exist, but there are no buttons in the Files view to trigger downloads. | ❌ Not built |
-| 1.7 | **Insights view wired** | eval.py exists but the Insights tab shows no data. Need to wire eval results into the UI with a "Run evaluation" button. | ❌ Not built |
+| 1.1 | **Scan folder UI** | Paste a folder path in the Add Files modal — queues all supported files recursively. | ✓ Built |
+| 1.2 | **Add / remove watch folders from UI** | Watch Folders modal in sidebar footer. | ✓ Built |
+| 1.3 | **Re-index button per document** | Per-row circular arrow button in Files view. | ✓ Built |
+| 1.4 | **Vision threshold tunable** | Currently triggers vision at <30 chars. Per-document config not yet exposed. | ❌ Not built |
+| 1.5 | **Ollama connection status badge** | Green/red dot in sidebar footer, polled every 60s. | ✓ Built |
+| 1.6 | **Export buttons in UI** | Export dropdown (JSON/CSV/SQLite) in Files view header. | ✓ Built |
+| 1.7 | **Insights view wired** | Stats, entity distribution, file types, health, feedback shown. eval.py run-button not yet wired. | ~ Partial |
 
 ### Phase 2 — User experience
 
 | # | Feature | Why it matters | Status |
 |---|---|---|---|
-| 2.1 | **Search / filter in Files view** | With 50+ docs, scrolling a flat list is painful. Add a search bar that filters by filename. | ❌ Not built |
+| 2.1 | **Search / filter in Files view** | Search bar above files table, client-side filter. | ✓ Built |
 | 2.2 | **File categories / tags** | Let users tag documents (Work, Legal, Personal, etc.) and filter by tag. | ❌ Not built |
-| 2.3 | **Drag-and-drop folder** | Currently can only drop individual files. Dropping a folder should walk it and queue all supported files (same as scan folder but via drag). | ❌ Not built |
-| 2.4 | **Keyboard shortcuts** | Cmd+K: focus input. Cmd+/: toggle sidebar. Esc: close modals. `/`: open quick search. | ❌ Not built |
-| 2.5 | **Model picker in UI** | Hard-coded to llama3.1:8b / qwen2.5:14b. Let user pick from currently installed Ollama models via a dropdown. Pull new models from UI. | ❌ Not built |
-| 2.6 | **Chat history persistence** | Conversation resets on page refresh. Store conversation in localStorage or SQLite so it survives a reload. | ❌ Not built |
-| 2.7 | **"Clear chat" button** | Visible button to wipe conversation history rather than requiring a page reload. | ❌ Not built — sidebar new-chat wipes it but it's not obvious |
-| 2.8 | **Copy answer button** | One-click copy of the answer text/markdown to clipboard. | ❌ Not built |
-| 2.9 | **Per-document export** | Export chunks + entities for a single document, not just the full library. | ❌ Not built |
+| 2.3 | **Drag-and-drop folder** | Dropping a folder not yet supported (files only). | ❌ Not built |
+| 2.4 | **Keyboard shortcuts** | Cmd+K focus input, Esc close modals. | ✓ Built |
+| 2.5 | **Model picker in UI** | Dropdown of all installed Ollama models, persisted in localStorage. | ✓ Built |
+| 2.6 | **Chat history persistence** | localStorage, survives page reload, last 20 turns. | ✓ Built |
+| 2.7 | **"Clear chat" button** | "New chat" button in sidebar clears history. | ✓ Built |
+| 2.8 | **Copy answer button** | Clipboard copy button on every answer card. | ✓ Built |
+| 2.9 | **Per-document export** | Export chunks + entities for a single document. | ❌ Not built |
 | 2.10 | **Bulk select + delete** | Select multiple files and delete all at once. | ❌ Not built |
 
 ### Phase 3 — Intelligence
 
 | # | Feature | Why it matters | Status |
 |---|---|---|---|
-| 3.1 | **Auto-generated questions per doc** | After indexing, automatically generate 3–5 sample questions the user could ask about each document. Show them in the file viewer modal and as starter prompts. | ❌ Not built |
-| 3.2 | **Document summary on ingest** | Generate a 2-3 sentence summary of each document during ingestion. Show in the Files view row hover. | ❌ Not built |
+| 3.1 | **Auto-generated questions per doc** | 4 questions with filename baked in, shown in file viewer Questions tab, clickable. | ✓ Built |
+| 3.2 | **Document summary on ingest** | 2-3 sentence summary generated during ingest, shown in file viewer + hover tooltip in Files view. | ✓ Built |
 | 3.3 | **Multi-document queries** | "Compare my two contracts" — query across multiple specified documents simultaneously with merged context. | ❌ Not built |
 | 3.4 | **Entity graph view** | Visualize connections between people, orgs, and dates across all documents (who appears in which files, what dates are mentioned). | ❌ Not built |
 | 3.5 | **Smart de-duplication** | Detect near-duplicate documents (same contract, different version) and warn the user. | ❌ Not built |
 | 3.6 | **Answer grounding score** | Show which specific sentence in the source document the answer came from, not just which page. Highlight the exact span. | ❌ Not built |
 | 3.7 | **"What's new" digest** | When watch folder detects new files, generate a 1-sentence summary of what changed and surface it in the UI. | ❌ Not built |
 
+### Phase 3.5 — Document Task Agents
+
+> Pre-built AI task chains you trigger on one or more documents. Each task retrieves the relevant chunks, runs a specialized prompt, and streams a structured result — fully local, no cloud.
+
+| # | Task | What it does | Multi-doc | Status |
+|---|---|---|---|---|
+| A.1 | **Summarize** | 3-5 bullet summary specific to the document | No | ✓ Built |
+| A.2 | **Extract action items** | All tasks, obligations, required actions as a checklist | No | ✓ Built |
+| A.3 | **Find dates & deadlines** | Every date/deadline with context | No | ✓ Built |
+| A.4 | **Key people & roles** | All people, orgs, and their roles | No | ✓ Built |
+| A.5 | **Financial terms** | All amounts, fees, payment obligations | No | ✓ Built |
+| A.6 | **Draft a reply** | Professional response to the document | No | ✓ Built |
+| A.7 | **Compare two documents** | Side-by-side comparison of similarities and differences | Yes (2 docs) | ✓ Built |
+| A.8 | **Risk flags** | Identify unusual clauses, missing terms, red flags in contracts/legal docs | No | ✓ Built |
+
+**Architecture:**
+- `core/tasks.py` — task definitions + `run_task_stream()` generator
+- `GET /api/tasks` — list available tasks
+- `POST /api/tasks/run/stream` — SSE stream, same protocol as `/api/ask/stream`
+- UI: "Run task →" button in file viewer modal → task picker → streams result into Ask view
+
 ### Phase 4 — Open source / distribution
 
 | # | Feature | Why it matters | Status |
 |---|---|---|---|
 | 4.1 | **GitHub releases with versioned tags** | v1.0 tag exists in commit but no GitHub Release object with release notes. | ❌ Not built |
-| 4.2 | **CONTRIBUTING.md** | How to file issues, submit PRs, coding standards. | ❌ Not built |
+| 4.2 | **CONTRIBUTING.md** | How to file issues, submit PRs, coding standards. | ✓ Built |
 | 4.3 | **Demo GIF / screenshot in README** | Projects without visuals get far fewer stars. Record a 30s demo. | ❌ Not built |
 | 4.4 | **Docker / docker-compose** | One-command `docker compose up` for users who don't want to manage Python venvs. | ❌ Not built |
 | 4.5 | **Windows + Linux install.sh** | Current script is macOS-only (brew, macOS paths). | ❌ Not built |
@@ -109,11 +146,14 @@ When no relevant document exists, it falls back to a general Ollama chat assista
 
 ---
 
-## Immediate next 3 things to build (in order)
+## Immediate next things to build (in order)
 
-1. **Scan folder UI** (1.1) — single highest-value gap. Users expect to point at a folder and have it indexed.
-2. **Export buttons in UI** (1.6) — routes exist, just need buttons wired in Files view.
-3. **Ollama status badge** (1.5) — stops silent hangs from being mysterious.
+1. **Vision threshold tunable** (1.4) — per-upload slider or config option for OCR sensitivity.
+2. **File categories / tags** (2.2) — tag documents and filter by tag in Files view.
+3. **Per-document export** (2.9) — export a single doc's chunks + entities.
+4. **Insights eval button** (1.7) — wire "Run evaluation" button to eval.py, show results.
+5. **GitHub release v1.1** (4.1) — tag and release with updated notes.
+6. **Docker** (4.4) — `docker compose up` for non-Python users.
 
 ---
 

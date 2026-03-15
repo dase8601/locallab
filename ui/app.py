@@ -913,12 +913,15 @@ def api_file_detail(doc_id):
         except Exception:
             questions = []
 
+        summary = doc_dict.get("summary") or ""
+
         conn.close()
         return ok({
             "document": doc_dict,
             "chunks":   [dict(c) for c in chunks],
             "entities": [dict(e) for e in entities],
             "questions": questions,
+            "summary":   summary,
         })
     except Exception as e:
         return err(str(e), 500)
@@ -1229,6 +1232,50 @@ def api_suggestions():
             "What are the important dates?",
             "Summarise the main points",
         ]})
+
+
+# ── TASK AGENTS ───────────────────────────────────────────────────
+
+@app.route("/api/tasks", methods=["GET"])
+def api_tasks_list():
+    """GET /api/tasks — list all available task definitions."""
+    from tasks import TASK_DEFINITIONS
+    return ok({"tasks": list(TASK_DEFINITIONS.values())})
+
+
+@app.route("/api/tasks/run/stream", methods=["POST"])
+def api_tasks_run_stream():
+    """
+    POST /api/tasks/run/stream
+    body: { "task_id": "summarize", "doc_ids": [1], "model": "llama3.1:8b" }
+    Returns text/event-stream: meta → token… → done
+    """
+    from flask import Response, stream_with_context
+    from tasks import run_task_stream
+
+    data    = request.get_json(silent=True) or {}
+    task_id = (data.get("task_id") or "").strip()
+    doc_ids = data.get("doc_ids") or []
+    model   = (data.get("model") or "").strip() or None
+
+    if not task_id:
+        return err("task_id is required")
+    if not doc_ids:
+        return err("doc_ids is required")
+
+    def generate():
+        import json as _json
+        yield ": locallab task stream\n\n"
+        try:
+            yield from run_task_stream(task_id, doc_ids, model=model)
+        except BaseException as e:
+            yield f"event: error\ndata: {_json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── WATCH FOLDER ──────────────────────────────────────────────────

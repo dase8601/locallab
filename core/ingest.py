@@ -571,6 +571,51 @@ Output exactly 4 questions, one per line:"""
         return []
 
 
+def generate_doc_summary(filename, chunks, conn, doc_id, model=None):
+    """
+    Generate a 2-3 sentence summary of the document.
+    Stores result in documents.summary.
+    """
+    model = model or ENTITY_MODEL
+
+    context_chunks = chunks[:4]
+    context = "\n\n".join(
+        f"[Page {c.get('page_start', '?')}]\n{c.get('text', '')[:600]}"
+        for c in context_chunks
+    )
+    if not context.strip():
+        return ""
+
+    prompt = f"""You are summarizing a document called "{filename}".
+
+Write a 2-3 sentence summary of what this document is about. Be specific and factual.
+Do NOT use generic phrases like "this document covers". Mention the actual subject matter.
+
+Document content:
+{context}
+
+Summary (2-3 sentences only):"""
+
+    try:
+        resp = ollama.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.3, "num_predict": 150},
+        )
+        summary = resp.message.content.strip()
+        if summary:
+            conn.execute(
+                "UPDATE documents SET summary=? WHERE id=?",
+                (summary, doc_id)
+            )
+            conn.commit()
+            print(f"[ingest] ✓ summary generated ({len(summary)} chars)")
+        return summary
+    except Exception as e:
+        print(f"[ingest] Summary generation skipped: {e}")
+        return ""
+
+
 def extract_entities_from_batch(page_batch, doc_id, conn):
     combined = ""
     for page_num, text in page_batch:
@@ -836,6 +881,10 @@ def ingest_file(filepath, conn, preview=False, job_id=None):
     print(f"[ingest] Generating questions for {filepath.name}...")
     generate_doc_questions(filepath.name, chunks, conn, doc_id, model=ENTITY_MODEL)
 
+    # Step 6.5: Generate 2-3 sentence summary
+    print(f"[ingest] Generating summary for {filepath.name}...")
+    generate_doc_summary(filepath.name, chunks, conn, doc_id, model=ENTITY_MODEL)
+
     # Step 7: Finalise
     elapsed = round(time.time() - t0, 1)
 
@@ -920,7 +969,8 @@ def ingest_folder(folder, conn, preview=False):
 def list_documents(conn):
     rows = conn.execute("""
         SELECT id, filename, file_type, file_size, page_count,
-               chunk_count, entity_count, date_indexed, status
+               chunk_count, entity_count, date_indexed, status,
+               COALESCE(summary, '') AS summary
         FROM documents ORDER BY id DESC
     """).fetchall()
     return [dict(r) for r in rows]
