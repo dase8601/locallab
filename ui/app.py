@@ -904,11 +904,21 @@ def api_file_detail(doc_id):
             (doc_id,)
         ).fetchall()
 
+        doc_dict = dict(doc)
+
+        # Parse questions JSON — graceful fallback
+        import json as _json
+        try:
+            questions = _json.loads(doc_dict.get("questions") or "[]")
+        except Exception:
+            questions = []
+
         conn.close()
         return ok({
-            "document": dict(doc),
+            "document": doc_dict,
             "chunks":   [dict(c) for c in chunks],
             "entities": [dict(e) for e in entities],
+            "questions": questions,
         })
     except Exception as e:
         return err(str(e), 500)

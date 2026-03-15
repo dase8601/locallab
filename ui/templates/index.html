@@ -596,9 +596,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div style="display:flex;gap:6px;margin:14px 0 0;border-bottom:1px solid var(--border);padding-bottom:10px">
         <button class="fv-tab active" id="fv-tab-chunks" onclick="fvSwitchTab('chunks')">Chunks</button>
         <button class="fv-tab" id="fv-tab-entities" onclick="fvSwitchTab('entities')">Entities</button>
+        <button class="fv-tab" id="fv-tab-questions" onclick="fvSwitchTab('questions')">Questions</button>
       </div>
       <div id="fv-chunks-pane" style="margin-top:14px"></div>
       <div id="fv-entities-pane" style="margin-top:14px;display:none"></div>
+      <div id="fv-questions-pane" style="margin-top:14px;display:none"></div>
     </div>
   </div>
 </div>
@@ -1502,6 +1504,17 @@ async function openFileViewer(docId) {
           </div>`).join('')
       : '<div style="color:var(--text3);font-size:13px;padding:12px 0">No entities extracted yet.</div>';
 
+    // Questions pane
+    const questions = data.questions || [];
+    document.getElementById('fv-questions-pane').innerHTML = questions.length
+      ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text3)">Click a question to ask it</div>` +
+        questions.map(q => `
+          <button class="suggestion" style="width:100%;text-align:left;margin-bottom:8px"
+            onclick="document.getElementById('file-viewer-modal').style.display='none';document.getElementById('qInput').value=${JSON.stringify(q)};autoResize(document.getElementById('qInput'));switchView('ask')">
+            ${escHtml(q)}
+          </button>`).join('')
+      : '<div style="color:var(--text3);font-size:13px;padding:12px 0">No questions generated yet. Re-index this file to generate them.</div>';
+
   } catch(err) {
     document.getElementById('fv-chunks-pane').innerHTML =
       `<div style="color:var(--text3);font-size:13px">Error: ${escHtml(String(err))}</div>`;
@@ -1515,10 +1528,12 @@ function closeFileViewer(e) {
 }
 
 function fvSwitchTab(tab) {
-  document.getElementById('fv-chunks-pane').style.display   = tab === 'chunks'   ? 'block' : 'none';
-  document.getElementById('fv-entities-pane').style.display = tab === 'entities' ? 'block' : 'none';
-  document.getElementById('fv-tab-chunks').classList.toggle('active',   tab === 'chunks');
-  document.getElementById('fv-tab-entities').classList.toggle('active', tab === 'entities');
+  document.getElementById('fv-chunks-pane').style.display    = tab === 'chunks'    ? 'block' : 'none';
+  document.getElementById('fv-entities-pane').style.display  = tab === 'entities'  ? 'block' : 'none';
+  document.getElementById('fv-questions-pane').style.display = tab === 'questions' ? 'block' : 'none';
+  document.getElementById('fv-tab-chunks').classList.toggle('active',    tab === 'chunks');
+  document.getElementById('fv-tab-entities').classList.toggle('active',  tab === 'entities');
+  document.getElementById('fv-tab-questions').classList.toggle('active', tab === 'questions');
 }
 
 // ── EXPORT DROPDOWN ────────────────────────────────────────────────

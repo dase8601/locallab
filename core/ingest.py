@@ -511,6 +511,66 @@ Example:
 If truly nothing found return: []"""
 
 
+def generate_doc_questions(filename, chunks, conn, doc_id, model=None):
+    """
+    Generate 4 specific questions a user might ask about this document.
+    Questions explicitly include the filename so the user knows which doc to reference.
+    Stores results as a JSON array in documents.questions.
+    """
+    model = model or ENTITY_MODEL
+
+    # Use top 3 chunks as context — enough to understand the doc without overloading the prompt
+    context_chunks = chunks[:3]
+    context = "\n\n".join(
+        f"[Page {c.get('page_start', '?')}]\n{c.get('text', '')[:800]}"
+        for c in context_chunks
+    )
+    if not context.strip():
+        return []
+
+    prompt = f"""You are analyzing a document called "{filename}".
+
+Read the following content and generate exactly 4 specific questions a user would ask about this document.
+
+Rules:
+- Every question MUST contain the exact filename: {filename}
+- Use natural phrasing like "In {filename}, what...", "What does {filename} say about...", "According to {filename}, who..."
+- Questions should be genuinely useful and specific to the content
+- No numbering, no bullet points, no dashes — just the 4 questions, one per line
+
+Document content:
+{context}
+
+Output exactly 4 questions, one per line:"""
+
+    try:
+        resp = ollama.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.4, "num_predict": 300},
+        )
+        raw = resp.message.content.strip()
+        questions = [
+            q.strip().lstrip("0123456789.-) ")
+            for q in raw.splitlines()
+            if q.strip() and "?" in q
+        ][:4]
+
+        if questions:
+            conn.execute(
+                "UPDATE documents SET questions=? WHERE id=?",
+                (json.dumps(questions), doc_id)
+            )
+            conn.commit()
+            print(f"[ingest] ✓ generated {len(questions)} questions")
+
+        return questions
+
+    except Exception as e:
+        print(f"[ingest] Question generation skipped: {e}")
+        return []
+
+
 def extract_entities_from_batch(page_batch, doc_id, conn):
     combined = ""
     for page_num, text in page_batch:
@@ -772,7 +832,11 @@ def ingest_file(filepath, conn, preview=False, job_id=None):
                 )
             conn.commit()
 
-    # Step 6: Finalise
+    # Step 6: Generate suggested questions for this document
+    print(f"[ingest] Generating questions for {filepath.name}...")
+    generate_doc_questions(filepath.name, chunks, conn, doc_id, model=ENTITY_MODEL)
+
+    # Step 7: Finalise
     elapsed = round(time.time() - t0, 1)
 
     conn.execute(
