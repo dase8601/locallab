@@ -269,6 +269,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .files-hint-banner span{flex:1}
 .files-hint-dismiss{background:none;border:none;cursor:pointer;color:var(--green);opacity:.6;font-size:14px;padding:0 2px;line-height:1}
 .files-hint-dismiss:hover{opacity:1}
+/* What's new digest banner */
+.whats-new-banner{display:none;flex-direction:column;gap:6px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:10px;margin-bottom:12px;animation:slideDown .25s ease}
+.whats-new-banner.visible{display:flex}
+.whats-new-header{display:flex;align-items:center;justify-content:space-between}
+.whats-new-title{font-size:12px;font-weight:600;color:var(--green);letter-spacing:.04em;text-transform:uppercase}
+.whats-new-dismiss{background:none;border:none;cursor:pointer;color:var(--text2);font-size:13px;padding:0 2px;line-height:1}
+.whats-new-dismiss:hover{color:var(--text)}
+.whats-new-item{display:flex;flex-direction:column;gap:2px;padding:6px 0;border-top:1px solid var(--border)}
+.whats-new-item:first-of-type{border-top:none}
+.whats-new-filename{font-size:12.5px;font-weight:600;color:var(--text)}
+.whats-new-summary{font-size:12px;color:var(--text2);line-height:1.4}
+@keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes rowPulse{0%,100%{border-left-color:transparent}50%{border-left-color:var(--green)}}
 .file-row-pulse{animation:rowPulse 1.2s ease-in-out 3}
 /* FILE VIEWER */
@@ -425,6 +437,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <!-- ASK -->
   <div class="view active" id="view-ask">
     <div class="chat-area" id="chatArea">
+      <!-- What's new digest — shown when watch folder indexes new files -->
+      <div style="max-width:720px;margin:0 auto;padding:0 24px">
+        <div id="whats-new-banner" class="whats-new-banner">
+          <div class="whats-new-header">
+            <span class="whats-new-title">New files indexed</span>
+            <button class="whats-new-dismiss" onclick="dismissWhatsNew()" title="Dismiss">✕</button>
+          </div>
+          <div id="whats-new-items"></div>
+        </div>
+      </div>
       <div class="chat-inner" id="chatInner">
         <div class="empty-state" id="emptyState">
           <div class="empty-logo"><img id="empty-logo-img" src="/static/noback.png" alt="locallab"></div>
@@ -1828,6 +1850,36 @@ function dismissFilesHint() {
   const b = document.getElementById('files-hint-banner');
   if (b) b.style.display = 'none';
 }
+
+// ── WHAT'S NEW DIGEST ─────────────────────────────────────────────
+let _whatsNewTimer = null;
+
+async function _pollWhatsNew() {
+  try {
+    const r = await fetch('/api/whats-new');
+    const d = await r.json();
+    const items = (d.data || {}).notifications || [];
+    if (items.length > 0) {
+      const banner = document.getElementById('whats-new-banner');
+      const container = document.getElementById('whats-new-items');
+      container.innerHTML = items.map(n => `
+        <div class="whats-new-item">
+          <span class="whats-new-filename">${escHtml(n.filename)}</span>
+          <span class="whats-new-summary">${escHtml(n.summary)}</span>
+        </div>`).join('');
+      banner.classList.add('visible');
+    }
+  } catch (_) {}
+  _whatsNewTimer = setTimeout(_pollWhatsNew, 30000);
+}
+
+async function dismissWhatsNew() {
+  document.getElementById('whats-new-banner').classList.remove('visible');
+  try { await fetch('/api/whats-new/dismiss', {method:'POST'}); } catch(_) {}
+}
+
+// Start polling on load
+_pollWhatsNew();
 
 function filterFiles(q) {
   const term = q.toLowerCase().trim();

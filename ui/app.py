@@ -147,6 +147,21 @@ def worker_loop():
                     "finished_at=? WHERE id=?",
                     (time.strftime("%Y-%m-%dT%H:%M:%SZ"), job["id"])
                 )
+                # If this job was watch-sourced, write a "what's new" notification
+                if job.get("source") == "watch":
+                    try:
+                        doc = final_conn.execute(
+                            "SELECT id, filename, summary FROM documents WHERE filepath=?",
+                            (job["filepath"],)
+                        ).fetchone()
+                        if doc and doc["summary"]:
+                            final_conn.execute(
+                                "INSERT INTO whats_new (doc_id, filename, summary, created_at) VALUES (?,?,?,?)",
+                                (doc["id"], doc["filename"], doc["summary"],
+                                 time.strftime("%Y-%m-%dT%H:%M:%SZ"))
+                            )
+                    except Exception as _wn_err:
+                        print(f"[watch] whats_new insert error: {_wn_err}")
             else:
                 final_conn.execute(
                     "UPDATE ingest_jobs SET status='failed', "
@@ -180,6 +195,29 @@ def _reset_stale_jobs():
         print(f"[worker] Stale job reset failed: {e}")
 
 _reset_stale_jobs()
+
+# ── WHATS NEW TABLE ───────────────────────────────────────────────
+def _init_whats_new():
+    """Create whats_new table and add source column to ingest_jobs if missing."""
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS whats_new (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id     INTEGER,
+            filename   TEXT NOT NULL,
+            summary    TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            read       INTEGER DEFAULT 0
+        )
+    """)
+    try:
+        conn.execute("ALTER TABLE ingest_jobs ADD COLUMN source TEXT DEFAULT 'upload'")
+    except Exception:
+        pass  # column already exists
+    conn.commit()
+    conn.close()
+
+_init_whats_new()
 
 # Start worker thread on import
 _worker_thread = threading.Thread(target=worker_loop, daemon=True)
@@ -1360,8 +1398,8 @@ def _enqueue_file(filepath: Path):
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
         conn.execute("""
             INSERT INTO ingest_jobs
-            (filepath, filename, status, priority, page_count, file_size_mb, estimated_secs, created_at)
-            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)
+            (filepath, filename, status, priority, page_count, file_size_mb, estimated_secs, created_at, source)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, 'watch')
         """, (str(filepath), filepath.name, est["priority"], est["page_count"],
               est["size_mb"], est["estimated_secs"], now))
         conn.commit()
@@ -1424,6 +1462,29 @@ def _start_watch_folders():
         print("[watch] watchdog not installed — folder watching disabled")
     except Exception as e:
         print(f"[watch] Startup error: {e}")
+
+
+# ── WHATS NEW ─────────────────────────────────────────────────────
+
+@app.route("/api/whats-new", methods=["GET"])
+def api_whats_new():
+    """GET /api/whats-new — unread watch-folder notifications."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, doc_id, filename, summary, created_at FROM whats_new WHERE read=0 ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    return ok({"notifications": [dict(r) for r in rows]})
+
+
+@app.route("/api/whats-new/dismiss", methods=["POST"])
+def api_whats_new_dismiss():
+    """POST /api/whats-new/dismiss — mark all notifications as read."""
+    conn = get_conn()
+    conn.execute("UPDATE whats_new SET read=1 WHERE read=0")
+    conn.commit()
+    conn.close()
+    return ok({"dismissed": True})
 
 
 # ── DEV HELPERS ───────────────────────────────────────────────────
@@ -1586,7 +1647,6 @@ def api_file_set_tags(doc_id):
 @app.route("/api/eval/run", methods=["POST"])
 def api_eval_run():
     """POST /api/eval/run — build eval set + run scoring in subprocess."""
-    global _eval_running
     import subprocess, threading
 
     if _eval_running:

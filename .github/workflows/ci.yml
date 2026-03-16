@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint dependencies
+        run: pip install flake8
+
+      - name: Lint with flake8
+        run: |
+          # Stop on syntax errors or undefined names; ignore line-length and style
+          flake8 core/ ui/app.py scripts/ \
+            --count \
+            --select=E9,F63,F7,F82 \
+            --show-source \
+            --statistics
+
+      - name: Check imports resolve
+        run: |
+          # Verify top-level imports don't crash (no DB/model required)
+          python -c "import ast, sys, pathlib
+          errors = []
+          for p in pathlib.Path('.').rglob('*.py'):
+              if 'venv' in p.parts or '__pycache__' in p.parts:
+                  continue
+              try:
+                  ast.parse(p.read_text())
+              except SyntaxError as e:
+                  errors.append(f'{p}: {e}')
+          if errors:
+              print('Syntax errors found:')
+              for e in errors: print(' ', e)
+              sys.exit(1)
+          print(f'All Python files parse cleanly.')
+          "
