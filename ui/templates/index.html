@@ -555,10 +555,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div class="view-title">Insights</div>
         <div class="view-subtitle">What locallab knows about your library</div>
       </div>
-      <button class="btn" id="eval-run-btn" onclick="runEval()" title="Run ground-truth evaluation against your documents">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Run evaluation
-      </button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:5px;background:var(--bg3);border:1.5px solid var(--border);border-radius:8px;padding:4px 10px">
+          <label for="eval-limit-input" style="font-size:12px;color:var(--text3);white-space:nowrap">Docs to eval</label>
+          <input id="eval-limit-input" type="number" min="1" max="500" placeholder="all"
+            style="width:52px;background:none;border:none;outline:none;font-family:inherit;font-size:13px;color:var(--text);text-align:center">
+        </div>
+        <button class="btn" id="eval-run-btn" onclick="runEval()" title="Run ground-truth evaluation against your documents">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run evaluation
+        </button>
+      </div>
     </div>
     <div class="view-content" id="insights-content">
       <div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Loading…</div>
@@ -2053,11 +2060,16 @@ async function saveSettings() {
 
 // ── EVAL ──────────────────────────────────────────────────────────
 async function runEval() {
-  const btn = document.getElementById('eval-run-btn');
+  const btn   = document.getElementById('eval-run-btn');
+  const limitVal = parseInt(document.getElementById('eval-limit-input').value) || 0;
   btn.disabled = true;
   btn.textContent = 'Running…';
   try {
-    const res  = await fetch('/api/eval/run', { method: 'POST' });
+    const res  = await fetch('/api/eval/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(limitVal ? {limit: limitVal} : {}),
+    });
     const data = await res.json();
     if (data.success) showToast(data.message, 'info');
     else showToast(data.error || 'Failed', 'error');
