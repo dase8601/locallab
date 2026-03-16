@@ -255,6 +255,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .file-delete-btn{opacity:0;background:none;border:none;cursor:pointer;color:var(--text3);padding:4px 6px;border-radius:6px;transition:all .15s;flex-shrink:0}
 .file-row:hover .file-delete-btn{opacity:1}
 .file-delete-btn:hover{color:#ef4444;background:rgba(239,68,68,.1)}
+/* BULK SELECT */
+.files-table-header{grid-template-columns:28px 2fr 1fr 1fr 1fr 80px!important}
+.file-row{grid-template-columns:28px 2fr 1fr 1fr 1fr 80px!important}
+.file-checkbox{width:16px;height:16px;cursor:pointer;accent-color:var(--green);flex-shrink:0}
+.bulk-bar{display:none;align-items:center;gap:10px;padding:8px 14px;background:var(--green-bg);border:1px solid rgba(16,185,129,.25);border-radius:10px;margin-bottom:10px;font-size:13px;color:var(--green);font-weight:500}
+.bulk-bar.visible{display:flex}
+.bulk-bar-count{flex:1}
+.bulk-delete-btn{padding:5px 14px;background:#ef4444;color:#fff;border:none;border-radius:7px;font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;transition:opacity .15s}
+.bulk-delete-btn:hover{opacity:.85}
 /* FILES DISCOVERY HINT */
 .files-hint-banner{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--green-bg);border:1px solid rgba(16,185,129,.25);border-radius:10px;margin-bottom:12px;font-size:12.5px;color:var(--green);font-weight:500}
 .files-hint-banner span{flex:1}
@@ -493,6 +502,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div id="tag-filter-pills"></div>
         <button id="tag-filter-clear" style="display:none;background:none;border:none;cursor:pointer;font-size:11.5px;color:var(--text3)" onclick="clearTagFilter()">✕ clear</button>
       </div>
+      <div id="bulk-bar" class="bulk-bar">
+        <span class="bulk-bar-count" id="bulk-count">0 selected</span>
+        <button class="bulk-delete-btn" onclick="bulkDelete()">Delete selected</button>
+        <button style="background:none;border:none;cursor:pointer;color:var(--green);font-size:13px;padding:0 4px" onclick="clearSelection()">✕ cancel</button>
+      </div>
       <div id="files-hint-banner" class="files-hint-banner" style="display:none">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span>Click any file to inspect chunks, entities, auto-generated questions, run tasks, and export</span>
@@ -500,6 +514,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
       <div class="files-table">
         <div class="files-table-header">
+          <span><input type="checkbox" class="file-checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)" title="Select all"></span>
           <span>Name</span><span>Type</span><span>Pages</span><span>Status</span><span>Actions</span>
         </div>
         <div id="files-list"><div class="empty-table">Loading…</div></div>
@@ -1872,7 +1887,11 @@ function renderFileRow(d, pulse=false) {
   const tooltip = d.summary ? escHtml(d.summary) : escHtml(d.filename);
   const pulseClass = (pulse && !localStorage.getItem('locallab_files_hint_dismissed')) ? ' file-row-pulse' : '';
   return `
-    <div class="file-row${pulseClass}" style="cursor:pointer" onclick="openFileViewer(${d.id})">
+    <div class="file-row${pulseClass}" data-doc-id="${d.id}" onclick="handleFileRowClick(event,${d.id})">
+      <div onclick="event.stopPropagation()">
+        <input type="checkbox" class="file-checkbox row-cb" data-id="${d.id}"
+          onchange="onRowCheckChange()">
+      </div>
       <div class="file-name" title="${tooltip}">
         <div class="file-icon ${icon}">${ext.toUpperCase().slice(0,3)}</div>
         ${escHtml(d.filename)}
@@ -1895,6 +1914,61 @@ function renderFileRow(d, pulse=false) {
         </button>
       </div>
     </div>`;
+}
+
+// ── BULK SELECT ───────────────────────────────────────────────────
+function handleFileRowClick(e, docId) {
+  // If click was on checkbox area, let onchange handle it
+  if (e.target.type === 'checkbox') return;
+  openFileViewer(docId);
+}
+
+function onRowCheckChange() {
+  const checked = [...document.querySelectorAll('.row-cb:checked')];
+  const all     = [...document.querySelectorAll('.row-cb')];
+  const bar     = document.getElementById('bulk-bar');
+  const countEl = document.getElementById('bulk-count');
+  const selectAll = document.getElementById('select-all-cb');
+  bar.classList.toggle('visible', checked.length > 0);
+  countEl.textContent = `${checked.length} selected`;
+  if (selectAll) selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+  if (selectAll) selectAll.checked = checked.length === all.length && all.length > 0;
+}
+
+function toggleSelectAll(checked) {
+  document.querySelectorAll('.row-cb').forEach(cb => cb.checked = checked);
+  onRowCheckChange();
+}
+
+function clearSelection() {
+  document.querySelectorAll('.row-cb').forEach(cb => cb.checked = false);
+  const sa = document.getElementById('select-all-cb');
+  if (sa) { sa.checked = false; sa.indeterminate = false; }
+  onRowCheckChange();
+}
+
+async function bulkDelete() {
+  const ids = [...document.querySelectorAll('.row-cb:checked')].map(cb => +cb.dataset.id);
+  if (!ids.length) return;
+  const noun = ids.length === 1 ? '1 file' : `${ids.length} files`;
+  if (!confirm(`Delete ${noun} from your library? This cannot be undone.`)) return;
+  try {
+    const res  = await fetch('/api/files/bulk-delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ids}),
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Deleted ${data.count} file${data.count !== 1 ? 's' : ''}`, 'success');
+      clearSelection();
+      loadFiles();
+    } else {
+      showToast(data.error || 'Delete failed', 'error');
+    }
+  } catch(e) {
+    showToast('Error: ' + e, 'error');
+  }
 }
 
 // ── KEYBOARD SHORTCUTS ────────────────────────────────────────────

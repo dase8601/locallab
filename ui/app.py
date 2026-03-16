@@ -1024,7 +1024,7 @@ def api_delete_file(doc_id):
             from qdrant_client.models import Filter, FieldCondition, MatchValue
             qdrant = QdrantClient(path=str(BASE_DIR / "db" / "qdrant"))
             qdrant.delete(
-                collection_name="locallab",
+                collection_name="done_docs",
                 points_selector=Filter(
                     must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
                 ),
@@ -1033,6 +1033,57 @@ def api_delete_file(doc_id):
             pass  # Qdrant may not have this doc; not fatal
 
         return ok({"deleted": doc_id, "filename": doc["filename"]})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/files/bulk-delete", methods=["POST"])
+def api_bulk_delete():
+    """POST /api/files/bulk-delete  body: {"ids": [1,2,3]}"""
+    try:
+        ids = (request.get_json(silent=True) or {}).get("ids", [])
+        ids = [int(i) for i in ids if str(i).isdigit()]
+        if not ids:
+            return err("No ids provided")
+
+        conn = get_conn()
+        deleted, errors = [], []
+
+        for doc_id in ids:
+            try:
+                doc = conn.execute(
+                    "SELECT filepath, filename FROM documents WHERE id=?", (doc_id,)
+                ).fetchone()
+                if not doc:
+                    continue
+                conn.execute("DELETE FROM chunks      WHERE doc_id=?",    (doc_id,))
+                conn.execute("DELETE FROM entities    WHERE doc_id=?",    (doc_id,))
+                conn.execute("DELETE FROM ingest_jobs WHERE filepath=?",  (doc["filepath"],))
+                conn.execute("DELETE FROM documents   WHERE id=?",        (doc_id,))
+                conn.commit()
+                deleted.append({"id": doc_id, "filename": doc["filename"]})
+            except Exception as e:
+                errors.append({"id": doc_id, "error": str(e)})
+
+        conn.close()
+
+        # Remove all vectors from Qdrant in one call
+        if deleted:
+            try:
+                from qdrant_client import QdrantClient
+                from qdrant_client.models import Filter, FieldCondition, MatchAny
+                qdrant = QdrantClient(path=str(BASE_DIR / "db" / "qdrant"))
+                qdrant.delete(
+                    collection_name="done_docs",
+                    points_selector=Filter(
+                        must=[FieldCondition(key="doc_id",
+                              match=MatchAny(any=[d["id"] for d in deleted]))]
+                    ),
+                )
+            except Exception:
+                pass
+
+        return ok({"deleted": deleted, "errors": errors, "count": len(deleted)})
     except Exception as e:
         return err(str(e), 500)
 
@@ -1083,7 +1134,7 @@ def api_reindex_file(doc_id):
             from qdrant_client.models import Filter, FieldCondition, MatchValue
             qdrant = QdrantClient(path=str(BASE_DIR / "db" / "qdrant"))
             qdrant.delete(
-                collection_name="locallab",
+                collection_name="done_docs",
                 points_selector=Filter(
                     must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
                 ),
