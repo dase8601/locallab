@@ -620,6 +620,8 @@ if __name__ == "__main__":
                    help="Eval a specific document only")
     p.add_argument("--max-questions",  type=int, default=10,
                    help="Max questions per document (default 10)")
+    p.add_argument("--limit",          type=int, default=0,
+                   help="Limit eval to first N documents (0 = all)")
     p.add_argument("--quiet",          action="store_true",
                    help="Less verbose output")
     args = p.parse_args()
@@ -639,9 +641,20 @@ if __name__ == "__main__":
 
     else:
         # Full eval: build then run
+        # If --limit set, pick the first N doc IDs and eval each individually
+        if args.limit and not args.doc_id:
+            doc_ids = [r[0] for r in conn.execute(
+                "SELECT id FROM documents WHERE status='indexed' ORDER BY id LIMIT ?",
+                (args.limit,)
+            ).fetchall()]
+            print(f"[eval] Limiting to {len(doc_ids)} documents (--limit {args.limit})")
+        else:
+            doc_ids = [args.doc_id] if args.doc_id else [None]
+
         print("[eval] Phase 1: Building eval question set...")
-        n = build_eval_set(conn, doc_id=args.doc_id,
-                           max_per_doc=args.max_questions)
+        n = 0
+        for did in doc_ids:
+            n += build_eval_set(conn, doc_id=did, max_per_doc=args.max_questions)
 
         if n == 0:
             # Questions may already exist
@@ -654,7 +667,8 @@ if __name__ == "__main__":
             print(f"[eval] Using {existing} existing questions.")
 
         print("\n[eval] Phase 2: Running eval questions through query pipeline...")
-        results = run_eval(conn, doc_id=args.doc_id,
+        eval_doc_id = args.doc_id if (args.doc_id or not args.limit) else None
+        results = run_eval(conn, doc_id=eval_doc_id,
                            verbose=not args.quiet)
 
         if results:

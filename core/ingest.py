@@ -525,6 +525,120 @@ Example:
 If truly nothing found return: []"""
 
 
+def enrich_document(filename, chunks, pages, doc_id, conn, model=None):
+    """
+    Single LLM call that returns entities + questions + summary together.
+    Falls back to the three individual functions if JSON parsing fails.
+    Returns (entity_count, questions, summary).
+    """
+    model = model or ENTITY_MODEL
+
+    # Build context: first 3 chunks for questions/summary, first page for entities
+    chunk_context = "\n\n".join(
+        f"[Page {c.get('page_start','?')}]\n{c.get('text','')[:700]}"
+        for c in chunks[:3]
+    )
+    entity_context = ""
+    for page_num, text in pages[:3]:
+        entity_context += f"\n[PAGE {page_num}]\n{text[:1200]}\n"
+
+    if not chunk_context.strip():
+        return 0, [], ""
+
+    prompt = f"""You are analyzing a document called "{filename}".
+
+Return a single JSON object with exactly these three keys:
+
+1. "summary": A 2-3 sentence factual summary. No generic openers. Mention the actual subject matter.
+
+2. "questions": An array of exactly 4 questions a user might ask. Every question MUST contain the exact filename "{filename}". Use natural phrasing like "In {filename}, what..." or "According to {filename}, who..."
+
+3. "entities": An array of named entities. Each entity has: type (PERSON/ORG/LOCATION/DATE/AMOUNT/SKILL/CLAUSE/CONTACT), value, context.
+
+Document content:
+{chunk_context}
+
+Additional content for entities:
+{entity_context}
+
+Return ONLY valid JSON. No markdown, no backticks, no explanation. Start with {{ end with }}.
+
+Example format:
+{{"summary": "...", "questions": ["q1", "q2", "q3", "q4"], "entities": [{{"type": "PERSON", "value": "Jane Smith", "context": "Jane Smith signed the agreement"}}]}}"""
+
+    try:
+        resp = ollama.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.2, "num_predict": 800, "num_ctx": 4096},
+        )
+        raw = resp.message.content.strip()
+        # Strip markdown fences if present
+        raw = re.sub(r'```(?:json)?\s*', '', raw).strip().rstrip('`')
+        # Find the outermost JSON object
+        start = raw.find('{')
+        end   = raw.rfind('}')
+        if start == -1 or end == -1:
+            raise ValueError("No JSON object found in response")
+
+        data = json.loads(raw[start:end + 1])
+
+        # --- Summary ---
+        summary = str(data.get("summary", "")).strip()
+        if summary:
+            conn.execute("UPDATE documents SET summary=? WHERE id=?", (summary, doc_id))
+            conn.commit()
+            print(f"[ingest] ✓ summary ({len(summary)} chars)")
+
+        # --- Questions ---
+        questions = [
+            q.strip() for q in data.get("questions", [])
+            if isinstance(q, str) and q.strip() and "?" in q
+        ][:4]
+        if questions:
+            conn.execute("UPDATE documents SET questions=? WHERE id=?",
+                         (json.dumps(questions), doc_id))
+            conn.commit()
+            print(f"[ingest] ✓ {len(questions)} questions")
+
+        # --- Entities ---
+        entity_list = data.get("entities", [])
+        now   = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        count = 0
+        for e in entity_list:
+            if not all(k in e for k in ("type", "value", "context")):
+                continue
+            # Find which page this entity appears on
+            page_num = pages[0][0] if pages else 0
+            for pn, pt in pages[:3]:
+                if str(e.get("value", "")).lower() in pt.lower():
+                    page_num = pn
+                    break
+            conn.execute(
+                "INSERT INTO entities "
+                "(doc_id, entity_type, value, context, page_number, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (doc_id, e["type"], str(e["value"])[:500],
+                 str(e["context"])[:500], page_num, now, now)
+            )
+            count += 1
+        if count:
+            conn.commit()
+            print(f"[ingest] ✓ {count} entities")
+
+        return count, questions, summary
+
+    except Exception as e:
+        print(f"[ingest] Combined enrichment failed ({e}), falling back to individual calls...")
+        # Fallback: run original 3 calls separately
+        entity_count = 0
+        for batch in [pages[i:i+ENTITY_BATCH_SIZE] for i in range(0, len(pages), ENTITY_BATCH_SIZE)]:
+            entity_count += extract_entities_from_batch(batch, doc_id, conn)
+        questions = generate_doc_questions(filename, chunks, conn, doc_id, model=model)
+        summary   = generate_doc_summary(filename, chunks, conn, doc_id, model=model)
+        return entity_count, questions, summary
+
+
 def generate_doc_questions(filename, chunks, conn, doc_id, model=None):
     """
     Generate 4 specific questions a user might ask about this document.
@@ -857,47 +971,22 @@ def ingest_file(filepath, conn, preview=False, job_id=None):
     conn.commit()
     print(f"[ingest] ✓ searchable — {filepath.name}")
 
-    # Step 5: Entity extraction (enrichment pass — runs after file is already searchable)
+    # Step 5: Enrichment — entities + questions + summary in one LLM call
     # Skipped for sparse/slide content and very large documents.
     total_entities = 0
     avg_chars = (len(full_text) / actual_pages) if actual_pages > 0 else 0
 
     if actual_pages > MAX_ENTITY_PAGES:
-        print(f"[ingest] Skipping entity extraction "
+        print(f"[ingest] Skipping enrichment "
               f"({actual_pages} pages > {MAX_ENTITY_PAGES} limit — large document)")
     elif avg_chars < SPARSE_THRESHOLD:
-        print(f"[ingest] Skipping entity extraction "
+        print(f"[ingest] Skipping enrichment "
               f"(avg {avg_chars:.0f} chars/page — slide/sparse content)")
     else:
-        print(f"[ingest] Enriching: extracting entities "
-              f"[{actual_pages}p, avg {avg_chars:.0f} chars/page, model={ENTITY_MODEL}]...")
-        batches = [
-            pages[i:i + ENTITY_BATCH_SIZE]
-            for i in range(0, len(pages), ENTITY_BATCH_SIZE)
-        ]
-
-        for batch_num, batch in enumerate(batches):
-            page_nums = [p for p, _ in batch]
-            print(f"  batch {batch_num + 1}/{len(batches)} "
-                  f"(pages {page_nums})...", end=" ", flush=True)
-            n = extract_entities_from_batch(batch, doc_id, conn)
-            total_entities += n
-            print(f"{n} entities")
-
-            if job_id:
-                conn.execute(
-                    "UPDATE ingest_jobs SET progress_page=? WHERE id=?",
-                    (page_nums[-1], job_id)
-                )
-            conn.commit()
-
-    # Step 6: Generate suggested questions for this document
-    print(f"[ingest] Generating questions for {filepath.name}...")
-    generate_doc_questions(filepath.name, chunks, conn, doc_id, model=ENTITY_MODEL)
-
-    # Step 6.5: Generate 2-3 sentence summary
-    print(f"[ingest] Generating summary for {filepath.name}...")
-    generate_doc_summary(filepath.name, chunks, conn, doc_id, model=ENTITY_MODEL)
+        print(f"[ingest] Enriching [{actual_pages}p, avg {avg_chars:.0f} chars/page]...")
+        total_entities, _, _ = enrich_document(
+            filepath.name, chunks, pages, doc_id, conn, model=ENTITY_MODEL
+        )
 
     # Step 7: Finalise
     elapsed = round(time.time() - t0, 1)

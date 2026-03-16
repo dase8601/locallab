@@ -1536,16 +1536,18 @@ def api_eval_run():
     """POST /api/eval/run — build eval set + run scoring in subprocess."""
     import subprocess, threading
 
+    limit = request.get_json(silent=True) or {}
+    limit_n = int(limit.get("limit", 0)) or None  # 0 = no limit
+
     def _run():
         try:
             venv_python = BASE_DIR / "venv" / "bin" / "python"
             python = str(venv_python) if venv_python.exists() else sys.executable
             eval_script = BASE_DIR / "core" / "eval.py"
-            subprocess.run(
-                [python, str(eval_script)],
-                cwd=str(BASE_DIR),
-                timeout=300,
-            )
+            cmd = [python, str(eval_script)]
+            if limit_n:
+                cmd += ["--limit", str(limit_n)]
+            subprocess.run(cmd, cwd=str(BASE_DIR), timeout=7200)  # 2-hour max
         except Exception as e:
             print(f"[eval] subprocess error: {e}")
 
