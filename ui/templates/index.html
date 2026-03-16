@@ -61,6 +61,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .model-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);font-size:11px;color:var(--text2);font-family:monospace}
 .status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes spin{to{transform:rotate(360deg)}}
 /* MAIN */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .view{display:none;flex-direction:column;height:100%}
@@ -2059,11 +2060,44 @@ async function saveSettings() {
 }
 
 // ── EVAL ──────────────────────────────────────────────────────────
+let _evalPollTimer = null;
+
+function _setEvalRunning(running) {
+  const btn = document.getElementById('eval-run-btn');
+  if (!btn) return;
+  btn.disabled = running;
+  btn.innerHTML = running
+    ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Running…`
+    : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run evaluation`;
+
+  const el = document.getElementById('eval-results-panel');
+  if (running && el) {
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--text3);font-size:13px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;flex-shrink:0"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+      Evaluation in progress — this may take a few minutes…
+    </div>`;
+  }
+}
+
+async function _pollEvalStatus() {
+  try {
+    const res  = await fetch('/api/eval/status');
+    const data = await res.json();
+    if (data.running) {
+      _setEvalRunning(true);
+      _evalPollTimer = setTimeout(_pollEvalStatus, 3000);
+    } else {
+      _setEvalRunning(false);
+      clearTimeout(_evalPollTimer);
+      loadEvalResults(); // refresh results now that it's done
+    }
+  } catch(_) {
+    _setEvalRunning(false);
+  }
+}
+
 async function runEval() {
-  const btn   = document.getElementById('eval-run-btn');
   const limitVal = parseInt(document.getElementById('eval-limit-input').value) || 0;
-  btn.disabled = true;
-  btn.textContent = 'Running…';
   try {
     const res  = await fetch('/api/eval/run', {
       method: 'POST',
@@ -2071,15 +2105,13 @@ async function runEval() {
       body: JSON.stringify(limitVal ? {limit: limitVal} : {}),
     });
     const data = await res.json();
-    if (data.success) showToast(data.message, 'info');
-    else showToast(data.error || 'Failed', 'error');
+    if (!data.success) { showToast(data.error || 'Failed to start', 'error'); return; }
+    _setEvalRunning(true);
+    clearTimeout(_evalPollTimer);
+    _evalPollTimer = setTimeout(_pollEvalStatus, 3000);
   } catch(e) {
     showToast('Error: ' + e, 'error');
   }
-  setTimeout(() => {
-    btn.disabled = false;
-    btn.textContent = 'Run evaluation';
-  }, 5000);
 }
 
 async function loadEvalResults() {

@@ -69,6 +69,7 @@ def get_conn():
 
 _worker_lock   = threading.Lock()
 _worker_active = False
+_eval_running  = False
 
 
 def worker_loop():
@@ -1534,12 +1535,18 @@ def api_file_set_tags(doc_id):
 @app.route("/api/eval/run", methods=["POST"])
 def api_eval_run():
     """POST /api/eval/run — build eval set + run scoring in subprocess."""
+    global _eval_running
     import subprocess, threading
 
-    limit = request.get_json(silent=True) or {}
+    if _eval_running:
+        return ok({"started": False, "message": "Evaluation already running."})
+
+    limit   = request.get_json(silent=True) or {}
     limit_n = int(limit.get("limit", 0)) or None  # 0 = no limit
 
     def _run():
+        global _eval_running
+        _eval_running = True
         try:
             venv_python = BASE_DIR / "venv" / "bin" / "python"
             python = str(venv_python) if venv_python.exists() else sys.executable
@@ -1547,13 +1554,21 @@ def api_eval_run():
             cmd = [python, str(eval_script)]
             if limit_n:
                 cmd += ["--limit", str(limit_n)]
-            subprocess.run(cmd, cwd=str(BASE_DIR), timeout=7200)  # 2-hour max
+            subprocess.run(cmd, cwd=str(BASE_DIR), timeout=7200)
         except Exception as e:
             print(f"[eval] subprocess error: {e}")
+        finally:
+            _eval_running = False
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    return ok({"started": True, "message": "Evaluation running in background. Refresh Insights in ~60s."})
+    return ok({"started": True})
+
+
+@app.route("/api/eval/status", methods=["GET"])
+def api_eval_status():
+    """GET /api/eval/status — whether eval is currently running."""
+    return ok({"running": _eval_running})
 
 
 @app.route("/api/eval/results", methods=["GET"])
