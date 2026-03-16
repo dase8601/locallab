@@ -99,21 +99,60 @@ def _find_filename_filter(question, conn):
          "give me my facilities"      -> "facilities.json"  (base-name match)
     Returns None if no match.
     """
+    matches = _find_all_filenames(question, conn)
+    return matches[0] if matches else None
+
+
+def _find_all_filenames(question, conn):
+    """
+    Return ALL filenames mentioned in the question (for multi-doc queries).
+    Uses same exact + base-name matching as _find_filename_filter.
+    """
     q_lower = question.lower()
     rows = conn.execute("SELECT filename FROM documents WHERE status='indexed'").fetchall()
-    # Exact filename match first (e.g. "physicians.json")
+    matched = []
+    seen = set()
+    # Exact filename match first
     for r in rows:
         fn = r["filename"]
-        if fn.lower() in q_lower:
-            return fn
+        if fn.lower() in q_lower and fn not in seen:
+            matched.append(fn)
+            seen.add(fn)
     # Base-name match (strip extension), require word boundary
     for r in rows:
-        fn   = r["filename"]
+        fn = r["filename"]
+        if fn in seen:
+            continue
         base = fn.rsplit(".", 1)[0].lower().replace("_", " ").replace("-", " ")
-        # Only match if base-name is at least 4 chars to avoid false positives
         if len(base) >= 4 and re.search(r'\b' + re.escape(base) + r'\b', q_lower):
-            return fn
-    return None
+            matched.append(fn)
+            seen.add(fn)
+    return matched
+
+
+# Keywords that signal the user wants a cross-document comparison or synthesis
+_MULTI_DOC_KEYWORDS = {
+    "compare", "contrast", "difference", "differences", "similar", "similarities",
+    "both", "versus", "vs.", " vs ", "against", "between", "across all",
+    "all my", "all of my", "among all", "every document", "each document",
+    "all documents", "which document", "which file",
+}
+
+
+def _is_multi_doc_query(question, matched_files):
+    """
+    Return True when the query looks like a cross-document comparison or synthesis.
+    Triggers if:
+      - 2+ filenames are explicitly named, OR
+      - a compare keyword is present AND at least 1 filename is named,  OR
+      - a broad "all docs" keyword is present ("all my ...", "compare all ...")
+    """
+    q_lower = question.lower()
+    has_compare_kw = any(kw in q_lower for kw in _MULTI_DOC_KEYWORDS)
+    has_broad_kw   = any(kw in q_lower for kw in ("all my", "all of my", "across all",
+                                                    "among all", "every document",
+                                                    "all documents", "each document"))
+    return (len(matched_files) >= 2) or (has_compare_kw and len(matched_files) >= 1) or has_broad_kw
 
 
 def retrieve_chunks(question, top_k=TOP_K, filename_filter=None):
@@ -489,6 +528,16 @@ Rules:
 3. Cite the document your answer comes from (e.g. "According to filename.pdf...")
 4. Be clear and direct. Use markdown for structure (bullet points, bold) when helpful."""
 
+MULTI_DOC_PROMPT = """You are locallab, a private document assistant. The user wants to compare or analyze multiple documents.
+
+Rules:
+1. Use ONLY the provided document context — never use outside knowledge
+2. Structure your answer with a **bold heading per document** when comparing
+3. After comparing, add a brief **Summary** section with the key differences or similarities
+4. Cite exact filenames when referencing each document
+5. If a topic is only present in one document, note that explicitly
+6. Use markdown (bullet points, bold, tables) to make comparisons scannable"""
+
 
 def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_general=False):
     """
@@ -531,12 +580,13 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         return
 
     # ── Retrieval (non-streaming, fast ~200ms) ─────────────────────
-    filename_filter = _find_filename_filter(question, conn)
-    fetch_k = max(RETRIEVAL_TOP_K, top_k * 2)
+    matched_files   = _find_all_filenames(question, conn)
+    filename_filter = matched_files[0] if len(matched_files) == 1 else None
+    multi_doc       = _is_multi_doc_query(question, matched_files)
+    fetch_k         = max(RETRIEVAL_TOP_K, top_k * 2)
 
     # Only rewrite vague conversational queries that have no filename target.
-    # Questions already containing a filename or specific terms embed well as-is.
-    if not filename_filter:
+    if not matched_files:
         retrieval_query = _rewrite_query(question, model=model)
         if retrieval_query != question:
             print(f"[query] rewritten: {retrieval_query!r}")
@@ -544,9 +594,19 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         retrieval_query = question
 
     try:
-        chunks = retrieve_chunks(retrieval_query, top_k=fetch_k, filename_filter=filename_filter)
-        if not chunks and filename_filter:
-            chunks = retrieve_chunks(retrieval_query, top_k=fetch_k)
+        if multi_doc and len(matched_files) >= 2:
+            # Fetch dedicated chunks per named file so each doc is represented
+            chunks = []
+            for fn in matched_files[:5]:
+                doc_chunks = retrieve_chunks(retrieval_query, top_k=4, filename_filter=fn)
+                chunks.extend(doc_chunks)
+        elif multi_doc:
+            # Broad "all docs" query — pull a wide pool then sample per doc below
+            chunks = retrieve_chunks(retrieval_query, top_k=30)
+        else:
+            chunks = retrieve_chunks(retrieval_query, top_k=fetch_k, filename_filter=filename_filter)
+            if not chunks and filename_filter:
+                chunks = retrieve_chunks(retrieval_query, top_k=fetch_k)
     except SystemExit:
         chunks = []
     entities = retrieve_entities(question, conn)
@@ -608,13 +668,14 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
     primary_file = chunks[0]["filename"] if chunks else ""
 
     meta = {
-        "mode":               "general" if is_general else "document",
-        "confidence":         None if is_general else round(top_similarity, 3),
-        "source_file":        "" if is_general else primary_file,
-        "source_path":        "" if is_general else chunks[0].get("filepath", ""),
-        "sources":            [] if is_general else all_sources,
-        "model":              model or REASON_MODEL,
-        "retrieval_elapsed":  retrieval_elapsed,
+        "mode":              "general" if is_general else "document",
+        "confidence":        None if is_general else round(top_similarity, 3),
+        "source_file":       "" if (is_general or multi_doc) else primary_file,
+        "source_path":       "" if (is_general or multi_doc) else chunks[0].get("filepath", ""),
+        "sources":           [] if is_general else all_sources,
+        "model":             model or REASON_MODEL,
+        "retrieval_elapsed": retrieval_elapsed,
+        "multi_doc":         multi_doc,
     }
     yield f"event: meta\ndata: {_json.dumps(meta)}\n\n"
 
@@ -626,7 +687,33 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         if conversation:
             messages.extend(conversation[-6:])
         messages.append({"role": "user", "content": question})
-        temp = 0.7
+        temp = 0.1
+    elif multi_doc:
+        # Group chunks by document, cap at 3 chunks per doc, up to 6 docs total
+        from collections import OrderedDict
+        by_doc = OrderedDict()
+        for c in chunks:
+            by_doc.setdefault(c["filename"], []).append(c)
+        # For broad "all docs" queries, sort docs by best chunk similarity
+        if len(matched_files) < 2:
+            by_doc = OrderedDict(
+                sorted(by_doc.items(), key=lambda kv: kv[1][0]["similarity"], reverse=True)
+            )
+        context_sections = []
+        for fn, doc_chunks in list(by_doc.items())[:6]:
+            section_chunks = doc_chunks[:3]
+            lines = []
+            for c in section_chunks:
+                page_ref = f" (Page {c['page_start']})" if c.get("page_start") and c["page_start"] > 0 else ""
+                lines.append(f"{c['text']}{page_ref}")
+            context_sections.append(f"=== {fn} ===\n" + "\n\n".join(lines))
+        context = "\n\n".join(context_sections)
+        prompt = f"Question: {question}\n\nDocuments:\n{context}\n\nAnswer using only the context above."
+        messages = [{"role": "system", "content": MULTI_DOC_PROMPT}]
+        if conversation:
+            messages.extend(conversation[-6:])
+        messages.append({"role": "user", "content": prompt})
+        temp = 0.1
     else:
         # Re-rank: all chunks from the top-scoring file come first, then fill
         # remaining slots from other files. This ensures the LLM sees every page
@@ -663,26 +750,29 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
             full_answer.append(token)
             yield f"event: token\ndata: {_json.dumps({'text': token})}\n\n"
 
-    # ── Detect the actual cited file from the completed answer ─────
-    # Scan the answer text for any known filename mentions.
-    # The file mentioned first (earliest position) is the primary source.
+    # ── Detect cited file(s) from the completed answer ─────────────
     answer_text = "".join(full_answer).lower()
-    cited_file = None
-    earliest_pos = len(answer_text) + 1
-    for fn in known_filenames:
-        pos = answer_text.find(fn.lower())
-        if pos != -1 and pos < earliest_pos:
-            earliest_pos = pos
-            cited_file = fn
 
-    # If none found in answer text, fall back to highest-similarity chunk's file
-    if not cited_file:
-        cited_file = primary_file
-
-    cited_path = next((c.get("filepath", "") for c in chunks if c["filename"] == cited_file), "")
-    cited_conf = next((c["similarity"] for c in chunks if c["filename"] == cited_file), top_similarity)
-
-    yield f"event: done\ndata: {_json.dumps({'source_file': cited_file, 'source_path': cited_path, 'confidence': round(cited_conf, 3)})}\n\n"
+    if multi_doc:
+        # For multi-doc, report all files whose names appear in the answer
+        cited_files = [fn for fn in known_filenames if fn.lower() in answer_text]
+        if not cited_files:
+            cited_files = known_filenames[:3]
+        yield f"event: done\ndata: {_json.dumps({'source_file': '', 'source_path': '', 'confidence': round(top_similarity, 3), 'multi_doc': True, 'cited_files': cited_files})}\n\n"
+    else:
+        # Single-doc: find the first cited filename
+        cited_file = None
+        earliest_pos = len(answer_text) + 1
+        for fn in known_filenames:
+            pos = answer_text.find(fn.lower())
+            if pos != -1 and pos < earliest_pos:
+                earliest_pos = pos
+                cited_file = fn
+        if not cited_file:
+            cited_file = primary_file
+        cited_path = next((c.get("filepath", "") for c in chunks if c["filename"] == cited_file), "")
+        cited_conf = next((c["similarity"] for c in chunks if c["filename"] == cited_file), top_similarity)
+        yield f"event: done\ndata: {_json.dumps({'source_file': cited_file, 'source_path': cited_path, 'confidence': round(cited_conf, 3), 'multi_doc': False})}\n\n"
 
 
 def print_result(result):

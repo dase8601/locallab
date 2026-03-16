@@ -922,7 +922,11 @@ function buildAnswerSkeleton(q, meta, thinkId, fbId, panelId) {
           <div class="conf-track"><div class="conf-fill ${confCls}" style="width:${confPct}%"></div></div>
           <span class="conf-pct">${confPct}%</span>
         </div>
-        ${meta.source_file ? `
+        ${meta.multi_doc ? `
+        <button class="source-tag" id="src-badge-${thinkId}" onclick="toggleSource('${panelId}')" style="color:var(--green)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M18 2H10a2 2 0 0 0-2 2v16"/></svg>
+          <span id="src-badge-text-${thinkId}">Multiple docs</span>
+        </button>` : meta.source_file ? `
         <button class="source-tag" id="src-badge-${thinkId}" onclick="toggleSource('${panelId}')" title="${escHtml(meta.source_path||meta.source_file)}">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
           <span id="src-badge-text-${thinkId}">${escHtml(meta.source_file)}</span>
@@ -1063,7 +1067,14 @@ async function sendQ() {
           // and filter sources panel to only show that file's chunks
           try {
             const doneData = JSON.parse(ev.data || '{}');
-            if (doneData.source_file) {
+            if (doneData.multi_doc) {
+              // Multi-doc: keep all sources visible, update badge to show cited count
+              const cited = doneData.cited_files || [];
+              const badgeText = document.getElementById('src-badge-text-' + thinkId);
+              if (badgeText && cited.length > 0) {
+                badgeText.textContent = cited.length > 1 ? `${cited.length} docs` : cited[0];
+              }
+            } else if (doneData.source_file) {
               const badge = document.getElementById('src-badge-' + thinkId);
               const badgeText = document.getElementById('src-badge-text-' + thinkId);
               if (badge) badge.title = doneData.source_path || doneData.source_file;
