@@ -9,3 +9,5 @@ pdf2image>=1.16
 pillow>=10.0
 PyYAML>=6.0
 watchdog>=4.0
+pytest>=8.0
+pytest-flask>=1.3

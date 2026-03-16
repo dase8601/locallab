@@ -8,6 +8,7 @@ on:
 
 jobs:
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,10 +30,10 @@ jobs:
             --show-source \
             --statistics
 
-      - name: Check imports resolve
+      - name: Check all Python files parse cleanly
         run: |
-          # Verify top-level imports don't crash (no DB/model required)
-          python -c "import ast, sys, pathlib
+          python -c "
+          import ast, sys, pathlib
           errors = []
           for p in pathlib.Path('.').rglob('*.py'):
               if 'venv' in p.parts or '__pycache__' in p.parts:
@@ -47,3 +48,27 @@ jobs:
               sys.exit(1)
           print(f'All Python files parse cleanly.')
           "
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          # Install only what tests need — no Ollama/Qdrant/fastembed at runtime
+          pip install \
+            Flask \
+            PyYAML \
+            qdrant-client \
+            pytest \
+            pytest-flask
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
