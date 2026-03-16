@@ -41,7 +41,8 @@ QDRANT_PATH    = BASE_DIR / "db" / "qdrant"
 REASON_MODEL   = "qwen2.5:14b"
 EMBED_MODEL             = "nomic-embed-text"
 TOP_K                   = 5
-GENERAL_CHAT_THRESHOLD  = 0.40   # similarity below this → fall back to general LLM chat
+RETRIEVAL_TOP_K         = 15     # fetch more candidates, re-rank down to TOP_K
+GENERAL_CHAT_THRESHOLD  = 0.30   # similarity below this → fall back to general LLM chat
 
 # ── DATABASE ──────────────────────────────────────────────────────
 
@@ -52,6 +53,41 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+# ── QUERY REWRITING ───────────────────────────────────────────────
+
+def _rewrite_query(question: str, model: str = None) -> str:
+    """
+    Rewrite a conversational question into a terse keyword search query.
+    Only applied to longer conversational questions (>6 words).
+    Returns the original question unchanged if rewriting fails or isn't needed.
+    """
+    words = question.split()
+    if len(words) <= 6:
+        return question  # Short/specific queries don't need rewriting
+
+    prompt = (
+        "Rewrite the following question as a short keyword search query (5-10 words max). "
+        "Keep names, dates, and specific terms exactly as written. "
+        "Remove filler words like 'what is', 'can you tell me', 'according to the document'. "
+        "Output ONLY the rewritten query, nothing else.\n\n"
+        f"Question: {question}\n"
+        "Search query:"
+    )
+    try:
+        resp = ollama.chat(
+            model=model or REASON_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.0, "num_predict": 40},
+        )
+        rewritten = (resp.message.content or "").strip().strip('"').strip("'")
+        # Sanity check: reject if too long or empty
+        if rewritten and len(rewritten.split()) <= 15:
+            return rewritten
+    except Exception:
+        pass
+    return question  # Fallback to original on any error
+
 
 # ── RETRIEVAL ─────────────────────────────────────────────────────
 
@@ -495,13 +531,17 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         return
 
     # ── Retrieval (non-streaming, fast ~200ms) ─────────────────────
-    # retrieve_chunks may sys.exit(1) if Qdrant is empty — treat as no results
+    # Rewrite conversational question into terse keyword query for better recall
+    retrieval_query = _rewrite_query(question, model=model)
+    if retrieval_query != question:
+        print(f"[query] rewritten: {retrieval_query!r}")
+
     filename_filter = _find_filename_filter(question, conn)
-    fetch_k = max(top_k * 2, 10)
+    fetch_k = max(RETRIEVAL_TOP_K, top_k * 2)
     try:
-        chunks = retrieve_chunks(question, top_k=fetch_k, filename_filter=filename_filter)
+        chunks = retrieve_chunks(retrieval_query, top_k=fetch_k, filename_filter=filename_filter)
         if not chunks and filename_filter:
-            chunks = retrieve_chunks(question, top_k=fetch_k)
+            chunks = retrieve_chunks(retrieval_query, top_k=fetch_k)
     except SystemExit:
         chunks = []
     entities = retrieve_entities(question, conn)

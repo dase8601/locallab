@@ -1,5 +1,5 @@
 chunking:
-  overlap: 100
+  overlap: 200
   size: 600
 eval:
   counterfactual: true
