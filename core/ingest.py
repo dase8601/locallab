@@ -156,6 +156,47 @@ CREATE TABLE IF NOT EXISTS ingest_jobs (
 """
 
 
+def _detect_near_duplicate(doc_id, full_text, conn, threshold=0.85):
+    """
+    Compare this document's text fingerprint against all other indexed docs.
+    Returns (similar_doc_id, similar_filename, similarity_score) if a near-duplicate
+    is found above `threshold`, otherwise (None, None, 0.0).
+
+    Uses difflib.SequenceMatcher on the first 1000 chars of raw_text.
+    Fast enough for libraries up to ~1000 documents.
+    """
+    from difflib import SequenceMatcher
+
+    # Normalise: strip whitespace, lowercase, take first 1000 chars
+    fingerprint = " ".join(full_text.lower().split())[:1000]
+    if len(fingerprint) < 100:
+        return None, None, 0.0  # Too short to compare meaningfully
+
+    others = conn.execute(
+        "SELECT id, filename, raw_text FROM documents WHERE id != ? AND status='indexed'",
+        (doc_id,)
+    ).fetchall()
+
+    best_score = 0.0
+    best_id    = None
+    best_name  = None
+
+    for row in others:
+        other_text = (row["raw_text"] or "")
+        other_fp   = " ".join(other_text.lower().split())[:1000]
+        if len(other_fp) < 100:
+            continue
+        score = SequenceMatcher(None, fingerprint, other_fp).ratio()
+        if score > best_score:
+            best_score = score
+            best_id    = row["id"]
+            best_name  = row["filename"]
+
+    if best_score >= threshold:
+        return best_id, best_name, round(best_score, 3)
+    return None, None, 0.0
+
+
 def _open_db(path=None, timeout=30):
     """Open a SQLite connection with WAL mode and row factory."""
     p = path or DB_PATH
@@ -943,6 +984,16 @@ def ingest_file(filepath, conn, preview=False, job_id=None):
         "SELECT id FROM documents WHERE doc_hash = ?", (doc_hash,)
     ).fetchone()["id"]
 
+    # Near-duplicate detection
+    dup_id, dup_name, dup_score = _detect_near_duplicate(doc_id, full_text, conn)
+    if dup_id:
+        print(f"[ingest] ⚠ Near-duplicate detected: {filepath.name} ≈ {dup_name} ({dup_score:.0%} similar)")
+        conn.execute(
+            "UPDATE documents SET description=? WHERE id=?",
+            (f"NEAR_DUPLICATE:{dup_id}:{dup_name}:{dup_score}", doc_id)
+        )
+        conn.commit()
+
     if job_id:
         conn.execute(
             "UPDATE ingest_jobs SET status='processing', started_at=? WHERE id=?",
@@ -1073,11 +1124,27 @@ def list_documents(conn):
     rows = conn.execute("""
         SELECT id, filename, file_type, file_size, page_count,
                chunk_count, entity_count, date_indexed, status,
-               COALESCE(summary, '') AS summary,
-               COALESCE(tags, '')    AS tags
+               COALESCE(summary, '')     AS summary,
+               COALESCE(tags, '')        AS tags,
+               COALESCE(description, '') AS description
         FROM documents ORDER BY id DESC
     """).fetchall()
-    return [dict(r) for r in rows]
+    docs = []
+    for r in rows:
+        d = dict(r)
+        # Parse near-duplicate flag from description field
+        desc = d.get("description", "")
+        if desc.startswith("NEAR_DUPLICATE:"):
+            parts = desc.split(":", 3)  # NEAR_DUPLICATE:id:filename:score
+            d["near_duplicate_of_id"]   = int(parts[1]) if len(parts) > 1 else None
+            d["near_duplicate_of_name"] = parts[2]      if len(parts) > 2 else ""
+            d["near_duplicate_score"]   = float(parts[3]) if len(parts) > 3 else 0.0
+        else:
+            d["near_duplicate_of_id"]   = None
+            d["near_duplicate_of_name"] = ""
+            d["near_duplicate_score"]   = 0.0
+        docs.append(d)
+    return docs
 
 
 # ── CLI ───────────────────────────────────────────────────────────

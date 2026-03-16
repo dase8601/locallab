@@ -107,11 +107,11 @@ Switch between Your docs (RAG) and General (direct Ollama chat) with a single to
 
 | # | Feature | Why it matters | Status |
 |---|---|---|---|
-| 3.3 | **Multi-document queries** | "Compare my two contracts" — merged context across docs | ❌ Not built |
+| 3.3 | **Multi-document queries** | "Compare my two contracts" — merged context across docs | ✓ Built |
 | 3.4 | **Entity graph view** | Visualize connections between people, orgs, dates across docs | ❌ Not built |
-| 3.5 | **Smart de-duplication** | Detect near-duplicate documents | ❌ Not built |
+| 3.5 | **Smart de-duplication** | Detect near-duplicate documents at ingest, warn in Files view | ✓ Built |
 | 3.6 | **Answer grounding score** | Highlight exact sentence the answer came from | ❌ Not built |
-| 3.7 | **"What's new" digest** | When watch folder detects new file, surface 1-sentence summary | ❌ Not built |
+| 3.7 | **"What's new" digest** | When watch folder detects new file, surface 1-sentence summary | ✓ Built |
 
 ### Phase 3.5 — Document Task Agents ✓ All built
 
@@ -121,20 +121,18 @@ All 8 tasks built: Summarize, Action items, Dates & deadlines, Key people, Finan
 
 | # | Feature | Why it matters | Status |
 |---|---|---|---|
-| 4.1 | **GitHub releases with versioned tags** | v1.1 tag + release notes | ❌ Not built |
+| 4.1 | **GitHub releases with versioned tags** | v1.1 tag pushed; release page at GitHub | ✓ Built |
 | 4.3 | **Demo GIF / screenshot in README** | Projects without visuals get far fewer stars | ❌ Not built |
-| 4.5 | **Windows + Linux install.sh** | Current script is macOS-only | ❌ Not built |
-| 4.6 | **GitHub Actions CI** | Basic linting + import checks on push | ❌ Not built |
+| 4.5 | **Windows + Linux install.sh** | Auto-installs Ollama on Linux, WSL/Git Bash support | ✓ Built |
+| 4.6 | **GitHub Actions CI** | Lint + syntax check + 48 pytest tests on every push | ✓ Built |
 
 ---
 
 ## Immediate next things to build (in order)
 
-1. **GitHub release v1.1** (4.1) — tag + release notes
-2. **GitHub Actions CI** (4.6) — basic lint check on push
-3. **"What's new" digest** (3.7) — surface new file summaries in UI when watch folder picks them up
-4. **Multi-document queries** (3.3) — the most-requested intelligence feature
-5. **Demo GIF** (4.3) — record a 30s demo for README
+1. **Demo GIF** (4.3) — record a 30s demo for README (only manual item left)
+2. **Entity graph view** (3.4) — D3 force-directed graph in Explore tab
+3. **Answer grounding score** (3.6) — highlight exact matched sentence in sources panel
 
 ---
 

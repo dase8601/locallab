@@ -1961,7 +1961,10 @@ function renderFileRow(d, pulse=false) {
       </div>
       <div class="file-meta">${(d.file_type||'').toUpperCase()}</div>
       <div class="file-meta">${d.page_count||'—'}</div>
-      <div><span class="badge ${d.status==='indexed'?'indexed':'indexing'}">${d.status==='indexed'?'✓ Indexed':'⟳ Indexing'}</span></div>
+      <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+        <span class="badge ${d.status==='indexed'?'indexed':'indexing'}">${d.status==='indexed'?'✓ Indexed':'⟳ Indexing'}</span>
+        ${d.near_duplicate_of_id ? `<span title="Similar to ${escHtml(d.near_duplicate_of_name)} (${Math.round((d.near_duplicate_score||0)*100)}% match)" style="padding:2px 7px;background:var(--amber-bg,rgba(245,158,11,.12));color:var(--amber,#d97706);border-radius:20px;font-size:10px;font-weight:600;cursor:default;border:1px solid rgba(217,119,6,.2)">~ duplicate</span>` : ''}
+      </div>
       <div class="file-meta" style="display:flex;align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap">
         ${(d.tags||'').split(',').map(t=>t.trim()).filter(Boolean).map(t=>
           `<span onclick="event.stopPropagation();setTagFilter('${escHtml(t).replace(/'/g,"\\'")}')"
