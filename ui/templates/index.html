@@ -156,6 +156,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .send-btn:hover{opacity:.88;transform:scale(1.04)}
 .send-btn:disabled{opacity:.3;cursor:default;transform:none}
 .input-hint{font-size:11px;color:var(--text3);text-align:center;margin-top:10px}
+/* MODE TOGGLE */
+.mode-toggle{display:flex;align-items:center;justify-content:center;margin-bottom:10px}
+.mode-toggle-track{display:inline-flex;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;padding:3px;gap:2px}
+.mode-btn{padding:5px 16px;border:none;border-radius:7px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;background:transparent;color:var(--text2);transition:background .15s,color .15s}
+.mode-btn.active{background:var(--green);color:#fff}
+.mode-btn:not(.active):hover{background:var(--bg2);color:var(--text)}
 /* HEADER */
 .view-header{padding:28px 32px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .view-title{font-size:20px;font-weight:700;letter-spacing:-.3px}
@@ -248,6 +254,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .file-delete-btn{opacity:0;background:none;border:none;cursor:pointer;color:var(--text3);padding:4px 6px;border-radius:6px;transition:all .15s;flex-shrink:0}
 .file-row:hover .file-delete-btn{opacity:1}
 .file-delete-btn:hover{color:#ef4444;background:rgba(239,68,68,.1)}
+/* FILES DISCOVERY HINT */
+.files-hint-banner{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--green-bg);border:1px solid rgba(16,185,129,.25);border-radius:10px;margin-bottom:12px;font-size:12.5px;color:var(--green);font-weight:500}
+.files-hint-banner span{flex:1}
+.files-hint-dismiss{background:none;border:none;cursor:pointer;color:var(--green);opacity:.6;font-size:14px;padding:0 2px;line-height:1}
+.files-hint-dismiss:hover{opacity:1}
+@keyframes rowPulse{0%,100%{border-left-color:transparent}50%{border-left-color:var(--green)}}
+.file-row-pulse{animation:rowPulse 1.2s ease-in-out 3}
 /* FILE VIEWER */
 .modal-wide{width:760px;max-width:92vw;max-height:80vh;overflow-y:auto}
 .fv-tab{background:none;border:none;cursor:pointer;padding:6px 12px;font-size:13px;color:var(--text3);border-radius:6px;font-family:inherit;transition:all .1s}
@@ -415,6 +428,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
     <div class="input-area">
       <div class="input-inner">
+        <div class="mode-toggle">
+          <div class="mode-toggle-track">
+            <button class="mode-btn active" id="mode-docs" onclick="setMode('docs')">Your docs</button>
+            <button class="mode-btn" id="mode-general" onclick="setMode('general')">General</button>
+          </div>
+        </div>
         <div class="input-box">
           <textarea id="qInput" rows="1" placeholder="Ask a question about your documents…"
             onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
@@ -473,13 +492,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div id="tag-filter-pills"></div>
         <button id="tag-filter-clear" style="display:none;background:none;border:none;cursor:pointer;font-size:11.5px;color:var(--text3)" onclick="clearTagFilter()">✕ clear</button>
       </div>
+      <div id="files-hint-banner" class="files-hint-banner" style="display:none">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Click any file to inspect chunks, entities, auto-generated questions, run tasks, and export</span>
+        <button class="files-hint-dismiss" onclick="dismissFilesHint()">✕</button>
+      </div>
       <div class="files-table">
         <div class="files-table-header">
           <span>Name</span><span>Type</span><span>Pages</span><span>Status</span><span>Actions</span>
         </div>
         <div id="files-list"><div class="empty-table">Loading…</div></div>
       </div>
-      <div style="font-size:11.5px;color:var(--text3);margin-top:10px;text-align:right">Click any file to view chunks, entities, questions, and run tasks</div>
     </div>
   </div>
 
@@ -680,6 +703,7 @@ let pollInterval       = null;
 let recentQs           = [];
 let conversationHistory = [];  // [{role:'user'|'assistant', content:string}]
 let selectedModel = localStorage.getItem('locallab_model') || '';
+let _chatMode = localStorage.getItem('locallab_mode') || 'docs'; // 'docs' | 'general'
 let _currentFvDocId    = null;
 let _currentFvFilename = '';
 let _taskPickerTasks   = [];
@@ -709,6 +733,7 @@ function toggleTheme() {
   applyTheme();
 }
 applyTheme();
+setMode(_chatMode); // restore saved mode on load
 
 // ── MODEL SELECTOR ────────────────────────────────────────────────
 async function loadModels() {
@@ -732,6 +757,19 @@ async function loadModels() {
     }
   } catch(e) {
     document.getElementById('model-select').innerHTML = '<option value="">Unavailable</option>';
+  }
+}
+
+function setMode(mode) {
+  _chatMode = mode;
+  localStorage.setItem('locallab_mode', mode);
+  document.getElementById('mode-docs').classList.toggle('active', mode === 'docs');
+  document.getElementById('mode-general').classList.toggle('active', mode === 'general');
+  const input = document.getElementById('qInput');
+  if (input) {
+    input.placeholder = mode === 'general'
+      ? 'Ask anything…'
+      : 'Ask a question about your documents…';
   }
 }
 
@@ -888,7 +926,7 @@ async function sendQ() {
   inner.innerHTML += `
     <div class="message" id="${thinkId}">
       <div class="msg-role">locallab</div>
-      <div class="thinking">Reading your documents<div class="thinking-dots"><span></span><span></span><span></span></div></div>
+      <div class="thinking">${_chatMode === 'general' ? 'Thinking' : 'Reading your documents'}<div class="thinking-dots"><span></span><span></span><span></span></div></div>
     </div>`;
 
   input.value = '';
@@ -922,6 +960,7 @@ async function sendQ() {
         question:     q,
         conversation: conversationHistory.slice(-11, -1),
         model:        selectedModel || undefined,
+        general:      _chatMode === 'general',
       }),
     });
     if (!res.ok) throw new Error(`Server error ${res.status}`);
@@ -1598,7 +1637,7 @@ async function openFileViewer(docId) {
       ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text3)">Click a question to ask it</div>` +
         questions.map(q => `
           <button class="suggestion" style="width:100%;text-align:left;margin-bottom:8px"
-            onclick="document.getElementById('file-viewer-modal').style.display='none';document.getElementById('qInput').value=${JSON.stringify(q)};autoResize(document.getElementById('qInput'));switchView('ask')">
+            onclick="document.getElementById('file-viewer-modal').style.display='none';switchView('ask');document.getElementById('qInput').value=${JSON.stringify(q)};autoResize(document.getElementById('qInput'));sendQ()">
             ${escHtml(q)}
           </button>`).join('')
       : '<div style="color:var(--text3);font-size:13px;padding:12px 0">No questions generated yet. Re-index this file to generate them.</div>';
@@ -1761,6 +1800,12 @@ async function reindexFile(docId, filename) {
 let _allFileDocs  = [];
 let _activeTagFilter = '';
 
+function dismissFilesHint() {
+  localStorage.setItem('locallab_files_hint_dismissed', '1');
+  const b = document.getElementById('files-hint-banner');
+  if (b) b.style.display = 'none';
+}
+
 function filterFiles(q) {
   const term = q.toLowerCase().trim();
   const list = document.getElementById('files-list');
@@ -1774,7 +1819,14 @@ function filterFiles(q) {
     list.innerHTML = `<div class="empty-table">No files match</div>`;
     return;
   }
-  list.innerHTML = filtered.map(d => renderFileRow(d)).join('');
+  // Show discovery hint banner until dismissed
+  const banner = document.getElementById('files-hint-banner');
+  if (banner && !localStorage.getItem('locallab_files_hint_dismissed')) {
+    banner.style.display = 'flex';
+  }
+  // Render rows; pulse the first row briefly to draw attention
+  const rows = filtered.map((d, i) => renderFileRow(d, i === 0)).join('');
+  list.innerHTML = rows;
 }
 
 function setTagFilter(tag) {
@@ -1806,12 +1858,13 @@ function renderTagFilterBar() {
     </button>`).join('');
 }
 
-function renderFileRow(d) {
+function renderFileRow(d, pulse=false) {
   const ext     = (d.file_type||'').replace('.','').toLowerCase();
   const icon    = ['pdf','doc','docx','img','csv','xlsx','txt','md'].includes(ext) ? ext : 'txt';
   const tooltip = d.summary ? escHtml(d.summary) : escHtml(d.filename);
+  const pulseClass = (pulse && !localStorage.getItem('locallab_files_hint_dismissed')) ? ' file-row-pulse' : '';
   return `
-    <div class="file-row" style="cursor:pointer" onclick="openFileViewer(${d.id})">
+    <div class="file-row${pulseClass}" style="cursor:pointer" onclick="openFileViewer(${d.id})">
       <div class="file-name" title="${tooltip}">
         <div class="file-icon ${icon}">${ext.toUpperCase().slice(0,3)}</div>
         ${escHtml(d.filename)}

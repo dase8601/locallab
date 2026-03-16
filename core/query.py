@@ -92,7 +92,7 @@ def retrieve_chunks(question, top_k=TOP_K, filename_filter=None):
     client = QdrantClient(path=str(QDRANT_PATH))
 
     try:
-        info  = client.get_collection("locallab")
+        info  = client.get_collection("done_docs")
         count = info.points_count or 0
     except Exception:
         print("[query] No documents indexed yet. Run ingest.py first.")
@@ -115,7 +115,7 @@ def retrieve_chunks(question, top_k=TOP_K, filename_filter=None):
     actual_k = min(top_k, count)
 
     results = client.query_points(
-        collection_name="locallab",
+        collection_name="done_docs",
         query=dense_vec,
         using="dense",
         query_filter=qfilter,
@@ -454,7 +454,7 @@ Rules:
 4. Be clear and direct. Use markdown for structure (bullet points, bold) when helpful."""
 
 
-def ask_stream(question, top_k=TOP_K, conversation=None, model=None):
+def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_general=False):
     """
     Streaming RAG pipeline. Yields SSE-formatted strings.
 
@@ -462,11 +462,37 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None):
       event: meta   — retrieval metadata (sources, confidence, mode) sent first
       event: token  — each LLM token as it arrives
       event: done   — end of stream
+
+    force_general=True skips retrieval entirely and goes straight to Ollama.
     """
     import json as _json
 
     conn = get_conn()
     t0   = time.time()
+
+    # ── Force general mode (user toggled to "General") ────────────
+    if force_general:
+        retrieval_elapsed = round(time.time() - t0, 2)
+        meta = {
+            "mode": "general", "confidence": None, "sources": [],
+            "source_file": "", "source_path": "", "model": model or REASON_MODEL,
+            "retrieval_elapsed": retrieval_elapsed,
+        }
+        yield f"event: meta\ndata: {_json.dumps(meta)}\n\n"
+        messages = [
+            {"role": "system", "content": "You are a helpful, knowledgeable assistant. Answer clearly and concisely."}
+        ]
+        if conversation:
+            messages.extend(conversation[-6:])
+        messages.append({"role": "user", "content": question})
+        for chunk in ollama.chat(model=model or REASON_MODEL, messages=messages,
+                                  options={"temperature": 0.7, "num_ctx": 8192}, stream=True):
+            token = chunk.get("message", {}).get("content", "")
+            if token:
+                yield f"event: token\ndata: {_json.dumps({'text': token})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+        conn.close()
+        return
 
     # ── Retrieval (non-streaming, fast ~200ms) ─────────────────────
     # retrieve_chunks may sys.exit(1) if Qdrant is empty — treat as no results

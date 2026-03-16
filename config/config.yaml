@@ -1,27 +1,27 @@
+chunking:
+  overlap: 100
+  size: 600
+eval:
+  counterfactual: true
+  spans_per_doc: 5
 models:
-  vision:    qwen2.5vl:7b
-  reasoning: qwen2.5:14b
   embedding: nomic-embed-text
   ollama_url: http://localhost:11434
-
-watch:
-  folders:
-    - /Users/dallassellers/Documents/UniversityOfColorodoBoulder
-  extensions: [.pdf, .docx, .txt, .png, .jpg, .csv, .xlsx]
-
-chunking:
-  size: 600
-  overlap: 100
-
+  reasoning: qwen2.5:14b
+  vision: qwen2.5vl:7b
 retrieval:
-  top_k: 5
   threshold: 0.7
-
+  top_k: 5
 vision:
-  # Pages with fewer characters than this trigger the vision (OCR) model.
-  # 30 = standard text PDFs  |  200 = slide decks with sparse text
   page_chars_min: 30
-
-eval:
-  spans_per_doc: 5
-  counterfactual: true
+watch:
+  extensions:
+  - .pdf
+  - .docx
+  - .txt
+  - .png
+  - .jpg
+  - .csv
+  - .xlsx
+  folders:
+  - /Users/dallassellers/Documents/UniversityOfColorodoBoulder

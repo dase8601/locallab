@@ -254,10 +254,11 @@ def api_ask_stream():
     """
     from flask import Response, stream_with_context
 
-    data         = request.get_json(silent=True) or {}
-    question     = (data.get("question") or "").strip()
-    conversation = data.get("conversation") or []
-    model        = (data.get("model") or "").strip() or None
+    data          = request.get_json(silent=True) or {}
+    question      = (data.get("question") or "").strip()
+    conversation  = data.get("conversation") or []
+    model         = (data.get("model") or "").strip() or None
+    force_general = bool(data.get("general", False))
 
     if not question:
         return err("question is required")
@@ -272,7 +273,8 @@ def api_ask_stream():
         import json as _json
         yield ": locallab stream\n\n"   # flush HTTP headers immediately
         try:
-            yield from ask_stream(question, top_k=5, conversation=conversation or None, model=model)
+            yield from ask_stream(question, top_k=5, conversation=conversation or None,
+                                  model=model, force_general=force_general)
         except BaseException as e:
             yield f"event: error\ndata: {_json.dumps({'error': str(e)})}\n\n"
 
@@ -1342,6 +1344,14 @@ def _start_watch_folders():
                 path = Path(event.src_path)
                 # Debounce — wait 2s for file write to complete
                 time.sleep(2)
+                _enqueue_file(path)
+
+            def on_moved(self, event):
+                # macOS browser downloads: temp file → final destination
+                if event.is_directory:
+                    return
+                path = Path(event.dest_path)
+                time.sleep(1)
                 _enqueue_file(path)
 
         observer = Observer()
