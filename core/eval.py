@@ -641,13 +641,15 @@ if __name__ == "__main__":
 
     else:
         # Full eval: build then run
-        # If --limit set, pick the first N doc IDs and eval each individually
         if args.limit and not args.doc_id:
             doc_ids = [r[0] for r in conn.execute(
                 "SELECT id FROM documents WHERE status='indexed' ORDER BY id LIMIT ?",
                 (args.limit,)
             ).fetchall()]
             print(f"[eval] Limiting to {len(doc_ids)} documents (--limit {args.limit})")
+            # Clear existing questions so we only score the limited set
+            conn.execute("DELETE FROM eval_questions")
+            conn.commit()
         else:
             doc_ids = [args.doc_id] if args.doc_id else [None]
 
@@ -657,7 +659,6 @@ if __name__ == "__main__":
             n += build_eval_set(conn, doc_id=did, max_per_doc=args.max_questions)
 
         if n == 0:
-            # Questions may already exist
             existing = conn.execute(
                 "SELECT COUNT(*) as c FROM eval_questions"
             ).fetchone()["c"]
@@ -667,8 +668,7 @@ if __name__ == "__main__":
             print(f"[eval] Using {existing} existing questions.")
 
         print("\n[eval] Phase 2: Running eval questions through query pipeline...")
-        eval_doc_id = args.doc_id if (args.doc_id or not args.limit) else None
-        results = run_eval(conn, doc_id=eval_doc_id,
+        results = run_eval(conn, doc_id=args.doc_id or None,
                            verbose=not args.quiet)
 
         if results:
