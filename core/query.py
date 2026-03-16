@@ -531,13 +531,18 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         return
 
     # ── Retrieval (non-streaming, fast ~200ms) ─────────────────────
-    # Rewrite conversational question into terse keyword query for better recall
-    retrieval_query = _rewrite_query(question, model=model)
-    if retrieval_query != question:
-        print(f"[query] rewritten: {retrieval_query!r}")
-
     filename_filter = _find_filename_filter(question, conn)
     fetch_k = max(RETRIEVAL_TOP_K, top_k * 2)
+
+    # Only rewrite vague conversational queries that have no filename target.
+    # Questions already containing a filename or specific terms embed well as-is.
+    if not filename_filter:
+        retrieval_query = _rewrite_query(question, model=model)
+        if retrieval_query != question:
+            print(f"[query] rewritten: {retrieval_query!r}")
+    else:
+        retrieval_query = question
+
     try:
         chunks = retrieve_chunks(retrieval_query, top_k=fetch_k, filename_filter=filename_filter)
         if not chunks and filename_filter:
