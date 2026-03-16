@@ -288,12 +288,12 @@ def score_grounding(expected_answer, source_span):
 
 def overall_verdict(entity_score, source_score, grounding_score, confidence):
     """Combine scores into a single verdict."""
-    # Weighted average
+    # Weighted average — confidence may be None if RAG fell back to general chat
     combined = (
         entity_score    * 0.40 +
         source_score    * 0.25 +
         grounding_score * 0.25 +
-        confidence      * 0.10
+        (confidence or 0.0) * 0.10
     )
     if combined >= 0.80: return "PASS",   combined
     if combined >= 0.50: return "PARTIAL", combined
