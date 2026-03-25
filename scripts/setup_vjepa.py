@@ -18,7 +18,7 @@ from pathlib import Path
 BASE  = Path(__file__).parent.parent
 REPO  = BASE / "core" / "vjepa2"
 CACHE = Path.home() / ".cache" / "locallab" / "vjepa"
-URL   = "https://dl.fbaipublicfiles.com/vjepa2/vit_b_ViT-B_VJEPA2.pth"
+URL   = "https://dl.fbaipublicfiles.com/vjepa2/vjepa2_1_vitb_dist_vitG_384.pt"
 
 # 1. pip dependencies
 print("Installing pip dependencies…")
@@ -38,7 +38,7 @@ else:
 
 # 3. Download ViT-B weights (~300 MB)
 CACHE.mkdir(parents=True, exist_ok=True)
-dst = CACHE / "vit_b.pth"
+dst = CACHE / "vit_b.pt"
 if not dst.exists():
     print(f"Downloading ViT-B weights to {dst}  (~300 MB, may take a minute)…")
     urllib.request.urlretrieve(URL, dst)

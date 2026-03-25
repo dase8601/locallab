@@ -12,7 +12,7 @@ from pathlib import Path
 
 VJEPA_CACHE = Path.home() / ".cache" / "locallab" / "vjepa"
 VJEPA2_REPO = Path(__file__).parent / "vjepa2"    # git clone target
-VIT_B_PATH  = VJEPA_CACHE / "vit_b.pth"
+VIT_B_PATH  = VJEPA_CACHE / "vit_b.pt"
 
 _model_cache = None   # module-level singleton (loaded once per process)
 
@@ -29,10 +29,10 @@ def _load_model():
             _model_cache = (None, None)
             return _model_cache
         sys.path.insert(0, str(VJEPA2_REPO))
-        from vision_transformer import vit_b  # from cloned vjepa2 repo
+        from src.models.vision_transformer import vit_base  # from cloned vjepa2 repo
         device = ("mps" if torch.backends.mps.is_available() else
                   "cuda" if torch.cuda.is_available() else "cpu")
-        model = vit_b()
+        model = vit_base()
         ckpt = torch.load(str(VIT_B_PATH), map_location=device, weights_only=False)
         sd = ckpt.get("model") or ckpt.get("state_dict") or ckpt
         model.load_state_dict(sd, strict=False)
@@ -46,13 +46,13 @@ def _load_model():
 
 
 def _embed(model, device, frame_path: Path):
-    """Return a 768-d L2-normalised embedding for one frame (resized to 256x256)."""
+    """Return a 768-d L2-normalised embedding for one frame (resized to 224x224)."""
     import torch
     import torch.nn.functional as F
     import numpy as np
     from PIL import Image
 
-    img = Image.open(frame_path).convert("RGB").resize((256, 256))
+    img = Image.open(frame_path).convert("RGB").resize((224, 224))
     arr = (np.array(img, dtype=np.float32) / 255.0
            - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
     t = torch.tensor(arr).permute(2, 0, 1).unsqueeze(0).float().to(device)
