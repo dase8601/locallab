@@ -5,10 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>locallab</title>
 <meta name="description" content="Private AI for your files. Ask questions about your documents — 100% local, zero cloud.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='white'/><text x='16' y='16' font-size='22' font-weight='bold' fill='black' font-family='system-ui' text-anchor='middle' dominant-baseline='central'>ll</text></svg>">
+<link rel="icon" type="image/jpeg" href="/static/LocalLabsreallogo.jpeg?v=2">
+<link rel="shortcut icon" type="image/jpeg" href="/static/LocalLabsreallogo.jpeg?v=2">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous">
 <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap');
 :root {
@@ -153,6 +155,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .input-box:focus-within{border-color:#aaa}
 .input-box textarea{flex:1;border:none;outline:none;background:none;font-family:inherit;font-size:14.5px;color:var(--text);resize:none;line-height:1.5;max-height:160px;min-height:24px}
 .input-box textarea::placeholder{color:var(--text3)}
+.attach-btn{width:32px;height:32px;background:none;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text3);transition:border-color .15s,color .15s;font-size:20px;line-height:1;padding-bottom:2px}
+.attach-btn:hover{border-color:var(--text2);color:var(--text)}
+.upload-toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.3);z-index:9999;transition:opacity .3s}
 .send-btn{width:36px;height:36px;background:var(--green);border:none;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,transform .1s}
 .send-btn:hover{opacity:.88;transform:scale(1.04)}
 .send-btn:disabled{opacity:.3;cursor:default;transform:none}
@@ -163,6 +168,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .mode-btn{padding:5px 16px;border:none;border-radius:7px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;background:transparent;color:var(--text2);transition:background .15s,color .15s}
 .mode-btn.active{background:var(--green);color:#fff}
 .mode-btn:not(.active):hover{background:var(--bg2);color:var(--text)}
+.mode-btn.research-active{background:var(--accent,#6366f1);color:#fff}
+.research-trail{border-left:3px solid var(--accent,#6366f1);padding:8px 12px;margin-bottom:10px;font-size:0.78rem;color:var(--text3);border-radius:0 6px 6px 0;background:var(--bg2)}
+.trail-step{margin-bottom:5px}
+.trail-tool{font-weight:600;color:var(--accent,#6366f1);margin-right:4px}
+.trail-args{opacity:0.65;word-break:break-all}
+.trail-result{margin-top:2px;padding-left:10px;opacity:0.6;font-style:italic;white-space:pre-wrap;word-break:break-word}
 /* HEADER */
 .view-header{padding:28px 32px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .view-title{font-size:20px;font-weight:700;letter-spacing:-.3px}
@@ -244,6 +255,47 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .toast.error{background:#ef4444;color:#fff}
 .toast.info{background:var(--bg2);color:var(--text);border:1px solid var(--border)}
 @keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+sup.cite{font-size:10px;font-weight:700;color:var(--green);cursor:pointer;margin-left:1px;padding:1px 3px;border-radius:3px;background:var(--green-bg);border:1px solid color-mix(in srgb,var(--green) 30%,transparent);vertical-align:super;line-height:1;transition:background .15s}
+sup.cite:hover{background:var(--green);color:#fff}
+.related-qs{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.related-q{padding:5px 11px;font-size:12px;font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--text2);transition:all .15s;white-space:normal;text-align:left;line-height:1.35}
+.related-q:hover{background:var(--bg2);color:var(--text);border-color:var(--text3)}
+.timeline-track{position:relative;padding:24px 0 40px;overflow-x:auto}
+.timeline-axis{position:relative;height:2px;background:var(--border);margin:48px 12px 0}
+.timeline-event{position:absolute;transform:translateX(-50%);cursor:pointer;text-align:center}
+.timeline-event-dot{width:10px;height:10px;border-radius:50%;background:var(--green);border:2px solid var(--bg2);margin:0 auto;transition:transform .15s;position:relative;top:-5px}
+.timeline-event:hover .timeline-event-dot{transform:scale(1.5)}
+.timeline-event-label{font-size:10px;color:var(--text3);white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;position:absolute;top:12px;left:50%;transform:translateX(-50%)}
+.timeline-event-date{font-size:9px;color:var(--text3);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap}
+.timeline-year-mark{position:absolute;top:-28px;transform:translateX(-50%);font-size:11px;color:var(--text3);font-weight:600;white-space:nowrap}
+.timeline-year-tick{position:absolute;top:-6px;transform:translateX(-50%);width:1px;height:12px;background:var(--border)}
+.timeline-tooltip{position:fixed;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;max-width:240px;z-index:200;pointer-events:none;display:none;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.deadline-panel{position:fixed;bottom:80px;left:12px;width:280px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.4);display:none}
+.deadline-panel.open{display:block;animation:fadeUp .2s ease}
+.deadline-item{padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.deadline-item:last-child{border:none}
+.deadline-badge{position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 5px;line-height:1.4;min-width:16px;text-align:center}
+.conv-section{margin-top:6px;border-top:1px solid var(--border);padding-top:8px}
+.conv-section-header{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3)}
+.conv-new-btn{background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;line-height:1;padding:0 2px;border-radius:4px}
+.conv-new-btn:hover{color:var(--text);background:var(--bg3)}
+.conv-item{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--text2);min-height:32px}
+.conv-item:hover{background:var(--bg3);color:var(--text)}
+.conv-item.active{background:var(--green-bg);color:var(--green)}
+.conv-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-del{opacity:0;background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 3px;border-radius:3px;flex-shrink:0}
+.conv-item:hover .conv-del{opacity:1}
+.conv-del:hover{color:var(--red)}
+.saved-q-section{margin-top:6px;border-top:1px solid var(--border);padding-top:8px}
+.saved-q-header{display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:pointer;border-radius:6px;font-size:11.5px;color:var(--text3);font-weight:600;letter-spacing:.03em;text-transform:uppercase;user-select:none}
+.saved-q-header:hover{background:var(--bg3)}
+.saved-q-item{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--text2);min-height:32px}
+.saved-q-item:hover{background:var(--bg3)}
+.saved-q-item .sq-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saved-q-item .sq-sched{font-size:10px;color:var(--text3);flex-shrink:0}
+.sq-save-form{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0;display:flex;flex-direction:column;gap:8px}
+.sq-save-form input,.sq-save-form select{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12.5px;color:var(--text);width:100%;box-sizing:border-box}
+.sq-fresh-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
 /* FIRST-RUN OVERLAY */
 .welcome-overlay{position:fixed;inset:0;background:var(--bg);z-index:150;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0}
 .welcome-inner{max-width:480px;width:90vw;text-align:center;padding:40px 0}
@@ -402,6 +454,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="nav-label">Recent</div>
       <div id="recent-list"></div>
     </div>
+
+    <!-- Conversations section -->
+    <div class="conv-section" id="conv-section" style="display:none">
+      <div class="conv-section-header">
+        <span>Conversations</span>
+        <button class="conv-new-btn" onclick="newChat()" title="New conversation">+</button>
+      </div>
+      <div id="conv-list"></div>
+    </div>
+
+    <!-- Saved queries section -->
+    <div class="saved-q-section" id="saved-q-section" style="display:none">
+      <div class="saved-q-header" onclick="toggleSavedQSection()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        Saved Reports
+        <span id="saved-q-chevron" style="margin-left:auto;font-size:9px;transition:transform .2s">▲</span>
+      </div>
+      <div id="saved-q-list" style="padding:0 2px"></div>
+    </div>
   </div>
 
   <div class="sidebar-footer">
@@ -425,11 +496,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div class="toggle-knob"></div>
       </div>
     </button>
-    <div class="status-pill" id="ollama-status-pill">
-      <div class="status-dot" id="ollama-dot"></div>
-      <span id="ollama-label">Checking Ollama…</span>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div class="status-pill" id="ollama-status-pill" style="flex:1">
+        <div class="status-dot" id="ollama-dot"></div>
+        <span id="ollama-label">Checking Ollama…</span>
+      </div>
+      <!-- Deadline monitor badge button -->
+      <button onclick="toggleDeadlinePanel()" title="Upcoming deadlines (next 30 days)"
+        style="position:relative;padding:5px 9px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);cursor:pointer;color:var(--text2);font-size:12px;font-family:inherit;flex-shrink:0">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span id="deadline-count-badge" class="deadline-badge" style="display:none">0</span>
+      </button>
     </div>
   </div>
+  <!-- Deadline slide-out panel (anchored to sidebar footer) -->
+  <div id="deadline-panel" class="deadline-panel"></div>
 </aside>
 
 <main class="main">
@@ -464,9 +545,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <div class="mode-toggle-track">
             <button class="mode-btn active" id="mode-docs" onclick="setMode('docs')">Your docs</button>
             <button class="mode-btn" id="mode-general" onclick="setMode('general')">General</button>
+            <button class="mode-btn" id="mode-research" onclick="setMode('research')">Research</button>
           </div>
         </div>
         <div class="input-box">
+          <button class="attach-btn" onclick="document.getElementById('chatFileInput').click()" title="Upload a file">+</button>
+          <input type="file" id="chatFileInput" multiple accept=".pdf,.txt,.docx,.doc,.csv,.xlsx,.xls,.json,.md,.html,.png,.jpg,.jpeg,.bmp,.tiff,.mp4,.mov,.mp3,.wav,.m4a" style="display:none" onchange="handleChatFileUpload(this)">
           <textarea id="qInput" rows="1" placeholder="Ask a question about your documents…"
             onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
           <button class="send-btn" id="sendBtn" onclick="sendQ()">
@@ -570,19 +654,33 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div class="view-header">
       <div>
         <div class="view-title">Explore</div>
-        <div class="view-subtitle">Browse every entity extracted from your documents</div>
+        <div class="view-subtitle">Browse entities and visualize dates across your documents</div>
+      </div>
+      <!-- Sub-tab switcher -->
+      <div style="display:flex;gap:6px;align-items:center">
+        <button id="explore-tab-entities" class="btn active" onclick="switchExploreTab('entities')" style="padding:6px 14px;font-size:12px">Entities</button>
+        <button id="explore-tab-timeline" class="btn" onclick="switchExploreTab('timeline')" style="padding:6px 14px;font-size:12px">Timeline</button>
       </div>
     </div>
-    <div class="explore-filters" id="explore-filters">
-      <span style="font-size:12px;color:var(--text3)">Loading…</span>
+    <!-- Entities pane -->
+    <div id="explore-pane-entities">
+      <div class="explore-filters" id="explore-filters">
+        <span style="font-size:12px;color:var(--text3)">Loading…</span>
+      </div>
+      <div class="entity-list" id="entity-list">
+        <div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Loading…</div>
+      </div>
+      <div class="explore-pagination" id="explore-pagination" style="display:none">
+        <button class="page-btn" id="page-prev" onclick="explorePage(-1)">← Prev</button>
+        <span class="page-info" id="page-info"></span>
+        <button class="page-btn" id="page-next" onclick="explorePage(1)">Next →</button>
+      </div>
     </div>
-    <div class="entity-list" id="entity-list">
-      <div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Loading…</div>
-    </div>
-    <div class="explore-pagination" id="explore-pagination" style="display:none">
-      <button class="page-btn" id="page-prev" onclick="explorePage(-1)">← Prev</button>
-      <span class="page-info" id="page-info"></span>
-      <button class="page-btn" id="page-next" onclick="explorePage(1)">Next →</button>
+    <!-- Timeline pane -->
+    <div id="explore-pane-timeline" style="display:none;flex:1;overflow:auto;padding:0 24px 24px">
+      <div id="timeline-container" style="padding-top:16px">
+        <div style="text-align:center;color:var(--text3);font-size:13px;padding:40px">Loading timeline…</div>
+      </div>
     </div>
   </div>
 
@@ -619,7 +717,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="modal-title">Add files or folder</div>
       <div class="modal-sub">Browse and select files, or paste a folder path to index everything inside it.</div>
 
-      <input type="file" id="fileInput" multiple accept=".pdf,.docx,.doc,.txt,.md,.csv,.xlsx,.xls,.png,.jpg,.jpeg"
+      <input type="file" id="fileInput" multiple accept=".pdf,.docx,.doc,.txt,.md,.csv,.xlsx,.xls,.json,.html,.png,.jpg,.jpeg,.bmp,.tiff,.mp4,.mov,.mp3,.wav,.m4a"
         style="display:none" onchange="handleFileSelect(this)">
 
       <button class="btn" style="width:100%;justify-content:center;margin-bottom:12px;padding:12px" onclick="document.getElementById('fileInput').click()">
@@ -680,6 +778,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <!-- FILE VIEWER MODAL -->
+<!-- DOCUMENT VIEWER MODAL (PDF.js) -->
+<div id="doc-viewer-modal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.7)">
+  <div style="display:flex;height:100%;padding:24px;gap:16px;box-sizing:border-box" onclick="if(event.target===this)closeDocViewer()">
+    <!-- Sidebar: chunk text + metadata -->
+    <div style="width:280px;flex-shrink:0;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;font-weight:600">Evidence</span>
+        <button onclick="closeDocViewer()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text3);line-height:1">✕</button>
+      </div>
+      <div id="dv-snippet" style="font-size:12.5px;color:var(--text2);line-height:1.6;background:var(--green-bg);border:1px solid color-mix(in srgb,var(--green) 30%,transparent);border-radius:8px;padding:10px"></div>
+      <div id="dv-meta" style="font-size:11px;color:var(--text3)"></div>
+      <div id="dv-nonpdf-content" style="display:none;font-size:12.5px;color:var(--text2);line-height:1.6;white-space:pre-wrap;flex:1;overflow-y:auto"></div>
+    </div>
+    <!-- PDF canvas -->
+    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;align-items:center" id="dv-canvas-area">
+      <canvas id="dv-canvas" style="max-width:100%;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.4)"></canvas>
+      <div id="dv-page-nav" style="display:none;gap:10px;align-items:center">
+        <button onclick="dvNavPage(-1)" class="btn" style="padding:5px 12px">← Prev</button>
+        <span id="dv-page-label" style="font-size:12px;color:var(--text3)"></span>
+        <button onclick="dvNavPage(1)" class="btn" style="padding:5px 12px">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="file-viewer-modal" style="display:none">
   <div class="modal-overlay" onclick="closeFileViewer(event)">
     <div class="modal modal-wide" onclick="event.stopPropagation()">
@@ -740,6 +863,47 @@ function renderMd(text) {
   }
 }
 
+// Replace [1], [2]... markers in rendered answer with clickable <sup> tags
+// that scroll the sources panel into view when clicked.
+function postProcessCitations(bodyEl, panelId) {
+  if (!bodyEl) return;
+  bodyEl.innerHTML = bodyEl.innerHTML.replace(
+    /\[(\d+)\]/g,
+    (match, n) => {
+      const num = parseInt(n, 10);
+      return `<sup class="cite" title="Source ${num}" onclick="revealSources('${panelId}')">[${num}]</sup>`;
+    }
+  );
+}
+
+function revealSources(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+async function loadRelatedQuestions(question, answer, model, thinkId) {
+  try {
+    const res = await fetch('/api/related-questions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question, answer: answer.slice(0, 800), model})
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const qs = (data.questions || []).filter(q => q && q.trim());
+    if (!qs.length) return;
+    const bodyEl = document.getElementById('ab-' + thinkId);
+    if (!bodyEl) return;
+    const chips = qs.map(q => `<button class="related-q" onclick="fillQ(this);switchView('ask')">${escHtml(q)}</button>`).join('');
+    const div = document.createElement('div');
+    div.className = 'related-qs';
+    div.innerHTML = chips;
+    bodyEl.appendChild(div);
+  } catch(_) {}
+}
+
 // ── STATE ─────────────────────────────────────────────────────────
 let currentView        = 'ask';
 let isAsking           = false;
@@ -747,6 +911,7 @@ let selectedFiles      = [];
 let pollInterval       = null;
 let recentQs           = [];
 let conversationHistory = [];  // [{role:'user'|'assistant', content:string}]
+let currentConvId = parseInt(localStorage.getItem('locallab_conv_id') || '0') || null;
 let selectedModel = localStorage.getItem('locallab_model') || '';
 let _chatMode = localStorage.getItem('locallab_mode') || 'docs'; // 'docs' | 'general'
 let _currentFvDocId    = null;
@@ -810,10 +975,13 @@ function setMode(mode) {
   localStorage.setItem('locallab_mode', mode);
   document.getElementById('mode-docs').classList.toggle('active', mode === 'docs');
   document.getElementById('mode-general').classList.toggle('active', mode === 'general');
+  document.getElementById('mode-research').classList.toggle('active', mode === 'research');
   const input = document.getElementById('qInput');
   if (input) {
     input.placeholder = mode === 'general'
       ? 'Ask anything…'
+      : mode === 'research'
+      ? 'Ask a research question — I\'ll search the web and your documents…'
       : 'Ask a question about your documents…';
   }
 }
@@ -843,7 +1011,7 @@ function fillQ(btn) {
   autoResize(document.getElementById('qInput'));
 }
 
-function newChat() {
+async function newChat() {
   document.getElementById('chatInner').innerHTML = `
     <div class="empty-state" id="emptyState">
       <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
@@ -851,6 +1019,19 @@ function newChat() {
     </div>`;
   document.getElementById('qInput').value = '';
   conversationHistory = [];
+  saveHistory();
+  // Create a new conversation record in the DB
+  try {
+    const res = await fetch('/api/conversations', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode: _chatMode, model: selectedModel})
+    });
+    const data = await res.json();
+    currentConvId = data.id || null;
+    localStorage.setItem('locallab_conv_id', currentConvId || '');
+    renderConversationSidebar();
+  } catch(_) { currentConvId = null; }
   switchView('ask');
 }
 
@@ -868,6 +1049,11 @@ function buildAnswerSkeleton(q, meta, thinkId, fbId, panelId) {
     const scls = spct >= 80 ? 'high' : spct >= 55 ? 'med' : 'low';
     const pgLabel = s.page_start > 0
       ? (s.page_end > s.page_start ? `pp. ${s.page_start}–${s.page_end}` : `p. ${s.page_start}`) : '';
+    const showInDocBtn = s.doc_id
+      ? `<button title="View in document" onclick="event.stopPropagation();openDocViewer(${s.doc_id},${s.page_start||1},${JSON.stringify(s.snippet)},${JSON.stringify(s.filename)})"
+           style="padding:2px 7px;font-size:10.5px;border:1px solid var(--border);border-radius:5px;background:var(--bg3);cursor:pointer;color:var(--text3);font-family:inherit;flex-shrink:0;white-space:nowrap">
+           ↗ View
+         </button>` : '';
     return `
       <div data-srcfile="${escHtml(s.filename)}" style="border-bottom:1px solid var(--border);padding:12px 0${i===sources.length-1?';border:none':''}">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
@@ -878,6 +1064,7 @@ function buildAnswerSkeleton(q, meta, thinkId, fbId, panelId) {
               <span style="display:block;height:100%;width:${spct}%;border-radius:3px;background:var(--${scls==='high'?'green':scls==='med'?'amber':'red'})"></span>
             </span>
             <span style="font-size:11px;color:var(--text3)">${spct}%</span>
+            ${showInDocBtn}
           </span>
         </div>
         <div style="font-size:12.5px;color:var(--text2);line-height:1.5">${escHtml(s.snippet)}…</div>
@@ -893,9 +1080,12 @@ function buildAnswerSkeleton(q, meta, thinkId, fbId, panelId) {
       <span class="feedback-label">Was this helpful?</span>
       ${meta.model ? `<span class="model-tag" style="margin-left:auto" title="Model used"><i class="fa-solid fa-microchip" style="font-size:10px;opacity:.7"></i>${escHtml(meta.model)}</span>` : '<span style="flex:1"></span>'}
       <button class="thumb-btn" title="Copy answer" onclick="copyAnswer('${thinkId}',this)" style="font-size:12px"><i class="fa-regular fa-copy"></i></button>
+      <button class="thumb-btn" title="Generate video from this answer" onclick="openVideoGenModal('${thinkId}')" style="font-size:12px"><i class="fa-solid fa-film"></i></button>
+      <button class="thumb-btn" title="Save this query" onclick="openSaveQueryForm('${thinkId}','${fbId}')" style="font-size:12px"><i class="fa-regular fa-bookmark"></i></button>
       <button class="thumb-btn up"   title="Helpful"     onclick="submitFeedback(this,'up')"><i class="fa-solid fa-thumbs-up"></i></button>
       <button class="thumb-btn down" title="Not helpful" onclick="submitFeedback(this,'down')"><i class="fa-solid fa-thumbs-down"></i></button>
-    </div>`;
+    </div>
+    <div id="sq-form-${thinkId}" style="display:none"></div>`;
 
   if (isGeneral) {
     return `
@@ -972,10 +1162,14 @@ async function sendQ() {
       <div class="msg-user">${escHtml(q)}</div>
     </div>`;
 
+  const thinkingLabel = _chatMode === 'general' ? 'Thinking'
+    : _chatMode === 'research' ? 'Researching'
+    : 'Reading your documents';
   inner.innerHTML += `
     <div class="message" id="${thinkId}">
       <div class="msg-role">locallab</div>
-      <div class="thinking">${_chatMode === 'general' ? 'Thinking' : 'Reading your documents'}<div class="thinking-dots"><span></span><span></span><span></span></div></div>
+      ${_chatMode === 'research' ? `<div id="trail-${thinkId}" class="research-trail" style="display:none"></div>` : ''}
+      <div class="thinking">${thinkingLabel}<div class="thinking-dots"><span></span><span></span><span></span></div></div>
     </div>`;
 
   input.value = '';
@@ -986,9 +1180,39 @@ async function sendQ() {
   renderRecent();
   conversationHistory.push({role: 'user', content: q});
   saveHistory();
+  // Ensure we have an active conversation in the DB
+  if (!currentConvId) {
+    try {
+      const r = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: q.slice(0,60), mode: _chatMode, model: selectedModel})
+      });
+      const d = await r.json();
+      currentConvId = d.id || null;
+      localStorage.setItem('locallab_conv_id', currentConvId || '');
+      renderConversationSidebar();
+    } catch(_) {}
+  }
+  // Save user message (fire-and-forget)
+  const _convIdSnap = currentConvId;
+  if (_convIdSnap) {
+    fetch(`/api/conversations/${_convIdSnap}/messages`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({role:'user', content:q, mode:_chatMode})
+    }).then(r=>r.json()).then(d=>{
+      // If this is the first message, also set the title
+      fetch(`/api/conversations/${_convIdSnap}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({title: q.slice(0,60)})
+      }).catch(()=>{});
+      loadConversations();
+    }).catch(()=>{});
+  }
 
-  let fullAnswer = '';
-  let metaReceived = false;
+  let fullAnswer    = '';
+  let metaReceived  = false;
+  let currentChunkDbIds = [];  // chunk SQLite IDs from meta — passed back with feedback
 
   const controller = new AbortController();
   const TIMEOUT_MS = 45000;
@@ -1001,16 +1225,16 @@ async function sendQ() {
   resetSilence(); // start the clock immediately
 
   try {
-    const res = await fetch('/api/ask/stream', {
+    const isResearch = _chatMode === 'research';
+    const endpoint   = isResearch ? '/api/agent/stream' : '/api/ask/stream';
+    const body       = isResearch
+      ? JSON.stringify({question: q, history: conversationHistory.slice(-11, -1), model: selectedModel || undefined})
+      : JSON.stringify({question: q, conversation: conversationHistory.slice(-11, -1), model: selectedModel || undefined, general: _chatMode === 'general'});
+    const res = await fetch(endpoint, {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
       signal:  controller.signal,
-      body:    JSON.stringify({
-        question:     q,
-        conversation: conversationHistory.slice(-11, -1),
-        model:        selectedModel || undefined,
-        general:      _chatMode === 'general',
-      }),
+      body,
     });
     if (!res.ok) throw new Error(`Server error ${res.status}`);
 
@@ -1041,11 +1265,42 @@ async function sendQ() {
 
       for (const ev of events) {
         resetSilence(); // reset 45s silence timer on every event
+
+        if (ev.type === 'agent_step') {
+          const d = JSON.parse(ev.data);
+          const trail = document.getElementById('trail-' + thinkId);
+          if (trail) {
+            trail.style.display = 'block';
+            const argsStr = typeof d.args === 'object' ? Object.values(d.args).join(' ') : JSON.stringify(d.args);
+            trail.insertAdjacentHTML('beforeend',
+              `<div class="trail-step" id="trail-step-${trail.children.length}"><span class="trail-tool">${d.tool}</span><span class="trail-args">${escHtml(argsStr)}</span></div>`);
+            scrollChat();
+          }
+          continue;
+        }
+
+        if (ev.type === 'agent_result') {
+          const d = JSON.parse(ev.data);
+          const trail = document.getElementById('trail-' + thinkId);
+          if (trail) {
+            const last = trail.querySelector('.trail-step:last-child');
+            if (last) last.insertAdjacentHTML('beforeend',
+              `<div class="trail-result">${escHtml(d.result.slice(0, 200))}${d.result.length > 200 ? '…' : ''}</div>`);
+            scrollChat();
+          }
+          continue;
+        }
+
         if (ev.type === 'meta') {
           const meta = JSON.parse(ev.data);
           metaReceived = true;
+          currentChunkDbIds = meta.chunk_db_ids || [];
+          window._lastMetaConf = meta.confidence || null;
+          // Preserve the research trail div before replacing the thinking placeholder
+          const trailEl  = document.getElementById('trail-' + thinkId);
+          const trailHtml = trailEl ? trailEl.outerHTML : '';
           document.getElementById(thinkId).innerHTML =
-            buildAnswerSkeleton(q, meta, thinkId, fbId, panelId);
+            trailHtml + buildAnswerSkeleton(q, meta, thinkId, fbId, panelId);
           scrollChat();
 
         } else if (ev.type === 'token') {
@@ -1058,11 +1313,30 @@ async function sendQ() {
           // Final markdown render
           const bodyEl = document.getElementById('ab-' + thinkId);
           if (bodyEl) bodyEl.innerHTML = renderMd(fullAnswer || 'No answer found.');
+          // Post-process [n] citation markers → clickable superscripts
+          postProcessCitations(bodyEl, panelId);
+          // Load related follow-up questions asynchronously (don't await — fire and forget)
+          if (fullAnswer && q) loadRelatedQuestions(q, fullAnswer, selectedModel, thinkId);
           // Save answer to feedback row
           const fbRow = document.getElementById(fbId);
           if (fbRow) fbRow.dataset.answer = fullAnswer;
           conversationHistory.push({role: 'assistant', content: fullAnswer});
           saveHistory();
+          // Persist assistant message to DB (fire-and-forget)
+          try {
+            const _doneRaw = JSON.parse(ev.data || '{}');
+            if (_convIdSnap) {
+              fetch(`/api/conversations/${_convIdSnap}/messages`, {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({
+                  role:'assistant', content: fullAnswer,
+                  source_file: _doneRaw.source_file || '',
+                  confidence: (window._lastMetaConf || null),
+                  mode: _chatMode
+                })
+              }).catch(()=>{});
+            }
+          } catch(_) {}
           // Update source badge with the file the LLM actually cited
           // and filter sources panel to only show that file's chunks
           try {
@@ -1144,7 +1418,7 @@ async function submitFeedback(btn, thumbs) {
     const res = await fetch('/api/feedback', {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
-      body:    JSON.stringify({thumbs, question, answer, source_file: sourceFile, confidence}),
+      body:    JSON.stringify({thumbs, question, answer, source_file: sourceFile, confidence, chunk_db_ids: currentChunkDbIds}),
     });
     if (!res.ok) throw new Error('server error');
   } catch(_) {
@@ -1172,6 +1446,78 @@ function handleKey(e) {
 function autoResize(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+async function handleChatFileUpload(input) {
+  const files = Array.from(input.files);
+  if (!files.length) return;
+  input.value = '';
+
+  const spinSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0;animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+  const checkSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
+  const errSvg   = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+
+  const toast = document.createElement('div');
+  toast.className = 'upload-toast';
+  const label = files.length === 1 ? files[0].name : `${files.length} files`;
+  toast.innerHTML = `${spinSvg} Uploading ${label}…`;
+  document.body.appendChild(toast);
+
+  // Lock the send button until indexing is done
+  const sendBtn = document.getElementById('sendBtn');
+  const inp = document.getElementById('qInput');
+  sendBtn.disabled = true;
+
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+
+  let jobIds = [];
+  try {
+    const res  = await fetch('/api/upload', {method: 'POST', body: fd});
+    const data = await res.json();
+    jobIds = data.job_ids || [];
+    const hasMedia = files.some(f => /\.(mp4|mov|mp3|wav|m4a|ogg|avi|mkv)$/i.test(f.name));
+    const eta = hasMedia ? ' (video/audio may take several minutes)' : '';
+    toast.innerHTML = `${spinSvg} Indexing ${label}…${eta}`;
+    startQueuePoll();
+    if (files.length === 1 && !inp.value.trim()) {
+      inp.value = `What is in ${files[0].name}?`;
+      autoResize(inp);
+    }
+  } catch(e) {
+    toast.innerHTML = `${errSvg} Upload failed`;
+    sendBtn.disabled = false;
+    setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>toast.remove(),300); }, 3500);
+    return;
+  }
+
+  // Poll until all queued jobs are done or failed
+  if (jobIds.length === 0) {
+    toast.innerHTML = `${checkSvg} ${label} already indexed — ready to ask`;
+    sendBtn.disabled = false;
+    setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>toast.remove(),300); }, 3000);
+    return;
+  }
+
+  const pollDone = async () => {
+    try {
+      const r = await fetch('/api/ingest/status');
+      const d = await r.json();
+      const allJobs = [...(d.done||[]), ...(d.failed||[]), ...(d.pending||[]), ...(d.processing||[])];
+      const done    = new Set([...(d.done||[]), ...(d.failed||[])].map(j=>j.id));
+      const allDone = jobIds.every(id => done.has(id));
+      if (allDone) {
+        toast.innerHTML = `${checkSvg} ${label} indexed — ready to ask!`;
+        sendBtn.disabled = false;
+        setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>toast.remove(),300); }, 4000);
+      } else {
+        setTimeout(pollDone, 3000);
+      }
+    } catch(_) {
+      setTimeout(pollDone, 5000);
+    }
+  };
+  setTimeout(pollDone, 3000);
 }
 
 function renderRecent() {
@@ -1546,6 +1892,321 @@ function debounceExplore(val) {
   }, 300);
 }
 
+// ── EXPLORE SUB-TABS ──────────────────────────────────────────────
+let _currentExploreTab = 'entities';
+
+function switchExploreTab(tab) {
+  _currentExploreTab = tab;
+  document.getElementById('explore-pane-entities').style.display = tab === 'entities' ? '' : 'none';
+  document.getElementById('explore-pane-timeline').style.display = tab === 'timeline' ? '' : 'none';
+  document.getElementById('explore-tab-entities').classList.toggle('active', tab === 'entities');
+  document.getElementById('explore-tab-timeline').classList.toggle('active', tab === 'timeline');
+  if (tab === 'timeline') loadTimeline();
+}
+
+// ── TIMELINE ──────────────────────────────────────────────────────
+let _timelineData = null;
+const _timelineTooltip = (() => {
+  const el = document.createElement('div');
+  el.className = 'timeline-tooltip';
+  document.body.appendChild(el);
+  return el;
+})();
+
+async function loadTimeline() {
+  const container = document.getElementById('timeline-container');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px 0">Loading…</div>';
+  try {
+    const res = await fetch('/api/timeline');
+    const data = await res.json();
+    _timelineData = data.events || [];
+    renderTimeline(_timelineData, container);
+  } catch(_) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px 0">Could not load timeline.</div>';
+  }
+}
+
+function renderTimeline(events, container) {
+  if (!events.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px 0">No parseable dates found in your documents. Dates are extracted during ingestion.</div>';
+    return;
+  }
+  const dates = events.map(e => new Date(e.normalized_date));
+  const minT = Math.min(...dates.map(d => d.getTime()));
+  const maxT = Math.max(...dates.map(d => d.getTime()));
+  const span = maxT - minT || 1;
+  const trackW = Math.max(800, events.length * 24);
+
+  // Collect year tick marks
+  const minYear = new Date(minT).getFullYear();
+  const maxYear = new Date(maxT).getFullYear();
+  let yearTicks = '';
+  for (let y = minYear; y <= maxYear; y++) {
+    const t = new Date(y, 0, 1).getTime();
+    if (t < minT || t > maxT) continue;
+    const pct = ((t - minT) / span * 100).toFixed(2);
+    yearTicks += `<div class="timeline-year-mark" style="left:${pct}%">${y}</div>
+                  <div class="timeline-year-tick" style="left:${pct}%"></div>`;
+  }
+
+  const dots = events.map((e, i) => {
+    const t = new Date(e.normalized_date).getTime();
+    const pct = ((t - minT) / span * 100).toFixed(2);
+    const label = e.filename.length > 12 ? e.filename.slice(0, 11) + '…' : e.filename;
+    return `<div class="timeline-event" style="left:${pct}%;top:0"
+              onmouseenter="showTimelineTip(event,${i})" onmouseleave="hideTimelineTip()"
+              onclick="openFileViewer(${e.doc_id})">
+              <div class="timeline-event-date">${escHtml(e.date_value)}</div>
+              <div class="timeline-event-dot"></div>
+              <div class="timeline-event-label">${escHtml(label)}</div>
+            </div>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="timeline-track" style="min-width:${trackW}px">
+      <div class="timeline-axis" style="min-width:${trackW - 24}px">
+        ${yearTicks}
+        ${dots}
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">${events.length} date${events.length!==1?'s':''} across your documents · click any dot to open the document</div>`;
+}
+
+function showTimelineTip(event, idx) {
+  const e = _timelineData[idx];
+  if (!e) return;
+  _timelineTooltip.innerHTML = `<strong>${escHtml(e.filename)}</strong><br>${escHtml(e.date_value)}<br><span style="color:var(--text3);font-size:11px">${escHtml(e.context.slice(0,120))}</span>`;
+  _timelineTooltip.style.display = 'block';
+  _timelineTooltip.style.left = (event.clientX + 12) + 'px';
+  _timelineTooltip.style.top  = (event.clientY - 8) + 'px';
+}
+function hideTimelineTip() { _timelineTooltip.style.display = 'none'; }
+
+// ── DOCUMENT VIEWER (PDF.js) ───────────────────────────────────────
+let _dvPdf     = null;
+let _dvPage    = 1;
+let _dvTotalPg = 1;
+
+function closeDocViewer() {
+  document.getElementById('doc-viewer-modal').style.display = 'none';
+  _dvPdf = null;
+}
+
+async function openDocViewer(docId, pageNum, snippet, filename) {
+  const modal      = document.getElementById('doc-viewer-modal');
+  const canvasEl   = document.getElementById('dv-canvas');
+  const snipEl     = document.getElementById('dv-snippet');
+  const metaEl     = document.getElementById('dv-meta');
+  const nonPdfEl   = document.getElementById('dv-nonpdf-content');
+  const canvasArea = document.getElementById('dv-canvas-area');
+  const pageNav    = document.getElementById('dv-page-nav');
+
+  // Show modal immediately with loading state
+  modal.style.display = 'block';
+  snipEl.textContent  = snippet || '(no snippet)';
+  metaEl.textContent  = filename ? `File: ${filename}` : '';
+  canvasEl.style.display  = 'none';
+  nonPdfEl.style.display  = 'none';
+  pageNav.style.display   = 'none';
+
+  const ext = (filename || '').split('.').pop().toLowerCase();
+
+  // For non-PDF files show the snippet text directly
+  if (ext !== 'pdf') {
+    nonPdfEl.textContent  = snippet || '(snippet not available)';
+    nonPdfEl.style.display = 'block';
+    return;
+  }
+
+  // PDF rendering via PDF.js
+  if (typeof pdfjsLib === 'undefined') {
+    nonPdfEl.textContent  = 'PDF.js not loaded. Check your internet connection.';
+    nonPdfEl.style.display = 'block';
+    return;
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  try {
+    _dvPage    = Math.max(1, pageNum || 1);
+    _dvTotalPg = 1;
+    const url  = `/api/files/${docId}/serve`;
+    _dvPdf     = await pdfjsLib.getDocument(url).promise;
+    _dvTotalPg = _dvPdf.numPages;
+    await _dvRenderPage(canvasEl);
+    if (_dvTotalPg > 1) {
+      pageNav.style.display = 'flex';
+      document.getElementById('dv-page-label').textContent = `Page ${_dvPage} of ${_dvTotalPg}`;
+    }
+    canvasEl.style.display = 'block';
+  } catch(e) {
+    nonPdfEl.textContent  = `Could not render PDF: ${e.message}`;
+    nonPdfEl.style.display = 'block';
+  }
+}
+
+async function _dvRenderPage(canvasEl) {
+  if (!_dvPdf) return;
+  const page     = await _dvPdf.getPage(_dvPage);
+  const vp       = page.getViewport({scale: 1.5});
+  canvasEl.width  = vp.width;
+  canvasEl.height = vp.height;
+  await page.render({canvasContext: canvasEl.getContext('2d'), viewport: vp}).promise;
+  document.getElementById('dv-page-label').textContent = `Page ${_dvPage} of ${_dvTotalPg}`;
+}
+
+async function dvNavPage(delta) {
+  _dvPage = Math.max(1, Math.min(_dvTotalPg, _dvPage + delta));
+  const canvasEl = document.getElementById('dv-canvas');
+  await _dvRenderPage(canvasEl);
+}
+
+// ── DEADLINE MONITOR ──────────────────────────────────────────────
+let _deadlineData = [];
+
+async function loadDeadlines() {
+  try {
+    const res  = await fetch('/api/deadlines?days=30');
+    const data = await res.json();
+    _deadlineData = data.deadlines || [];
+    const badge = document.getElementById('deadline-count-badge');
+    if (badge) {
+      badge.textContent = _deadlineData.length;
+      badge.style.display = _deadlineData.length ? 'block' : 'none';
+    }
+  } catch(_) {}
+}
+
+function toggleDeadlinePanel() {
+  const panel = document.getElementById('deadline-panel');
+  if (!panel) return;
+  if (panel.classList.contains('open')) {
+    panel.classList.remove('open');
+    return;
+  }
+  // Render content
+  if (!_deadlineData.length) {
+    panel.innerHTML = `<div style="font-size:13px;font-weight:600;margin-bottom:10px">Upcoming Deadlines</div>
+      <div style="font-size:12px;color:var(--text3)">No dates found within the next 30 days.</div>`;
+  } else {
+    const items = _deadlineData.map(d => `
+      <div class="deadline-item">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:600;color:${d.days_until<=7?'var(--red)':'var(--amber)'}">${d.days_until===0?'Today':d.days_until===1?'Tomorrow':'In '+d.days_until+' days'}</span>
+          <span style="font-size:11px;color:var(--text3)">${escHtml(d.date_value)}</span>
+        </div>
+        <div style="color:var(--text2);margin-top:2px">${escHtml(d.filename)}</div>
+        ${d.context ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${escHtml(d.context.slice(0,80))}</div>` : ''}
+        <button onclick="openFileViewer(${d.doc_id})" style="margin-top:4px;font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);cursor:pointer;color:var(--text2);font-family:inherit">Open doc</button>
+      </div>`).join('');
+    panel.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span style="font-size:13px;font-weight:600">Upcoming Deadlines</span>
+        <span style="cursor:pointer;opacity:.5;font-size:16px" onclick="toggleDeadlinePanel()">✕</span>
+      </div>${items}`;
+  }
+  panel.classList.add('open');
+}
+
+// ── SAVED QUERIES ─────────────────────────────────────────────────
+let _savedQs = [];
+let _savedQOpen = true;
+
+async function loadSavedQueries() {
+  try {
+    const res  = await fetch('/api/saved-queries');
+    const data = await res.json();
+    _savedQs   = data.saved_queries || [];
+    renderSavedQuerySidebar();
+  } catch(_) {}
+}
+
+function renderSavedQuerySidebar() {
+  const section = document.getElementById('saved-q-section');
+  const list    = document.getElementById('saved-q-list');
+  if (!section || !list) return;
+  section.style.display = _savedQs.length ? '' : 'none';
+  if (!_savedQOpen) { list.style.display = 'none'; return; }
+  list.style.display = '';
+  list.innerHTML = _savedQs.map(sq => {
+    const fresh = sq.last_run_at && sq.schedule ? `<span class="sq-fresh-dot"></span>` : '';
+    const sched = sq.schedule ? `<span class="sq-sched">${sq.schedule}</span>` : '';
+    return `<div class="saved-q-item" title="${escHtml(sq.question)}">
+      ${fresh}
+      <span class="sq-name" onclick="runSavedQueryLive(${sq.id},${JSON.stringify(sq.question)})">${escHtml(sq.name)}</span>
+      ${sched}
+      <button onclick="deleteSavedQuery(${sq.id})" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:0 2px;line-height:1;flex-shrink:0" title="Delete">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function toggleSavedQSection() {
+  _savedQOpen = !_savedQOpen;
+  const chevron = document.getElementById('saved-q-chevron');
+  if (chevron) chevron.style.transform = _savedQOpen ? '' : 'rotate(180deg)';
+  renderSavedQuerySidebar();
+}
+
+function openSaveQueryForm(thinkId, fbId) {
+  const formEl = document.getElementById('sq-form-' + thinkId);
+  if (!formEl) return;
+  if (formEl.style.display !== 'none') { formEl.style.display = 'none'; return; }
+  const fbRow   = document.getElementById(fbId);
+  const question = fbRow ? fbRow.dataset.question : '';
+  formEl.style.display = 'block';
+  formEl.innerHTML = `
+    <div class="sq-save-form">
+      <input id="sq-name-${thinkId}" type="text" placeholder="Report name…" maxlength="100">
+      <select id="sq-sched-${thinkId}">
+        <option value="">Manual only</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+      </select>
+      <div style="display:flex;gap:6px">
+        <button class="btn" style="flex:1;padding:6px" onclick="confirmSaveQuery('${thinkId}',${JSON.stringify(question)})">Save</button>
+        <button style="flex:1;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);cursor:pointer;font-family:inherit;font-size:13px;color:var(--text2)" onclick="document.getElementById('sq-form-${thinkId}').style.display='none'">Cancel</button>
+      </div>
+    </div>`;
+}
+
+async function confirmSaveQuery(thinkId, question) {
+  const nameEl  = document.getElementById('sq-name-' + thinkId);
+  const schedEl = document.getElementById('sq-sched-' + thinkId);
+  const name    = (nameEl?.value || '').trim();
+  if (!name) { showToast('Enter a name for this report', 'error'); return; }
+  try {
+    const res  = await fetch('/api/saved-queries', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({name, question, schedule: schedEl?.value || ''}),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Save failed');
+    document.getElementById('sq-form-' + thinkId).style.display = 'none';
+    showToast(`Saved: ${name}`, 'success');
+    loadSavedQueries();
+  } catch(e) {
+    showToast('Could not save: ' + e.message, 'error');
+  }
+}
+
+async function deleteSavedQuery(sqId) {
+  try {
+    await fetch('/api/saved-queries/' + sqId, {method: 'DELETE'});
+    loadSavedQueries();
+  } catch(_) {}
+}
+
+async function runSavedQueryLive(sqId, question) {
+  // Run live (streaming) in the Ask tab
+  switchView('ask');
+  document.getElementById('qInput').value = question;
+  autoResize(document.getElementById('qInput'));
+  await sendQ();
+  // Also update the cached answer in the background
+  fetch('/api/saved-queries/' + sqId + '/run', {method: 'POST'}).catch(() => {});
+}
+
 // ── ADD MODAL ─────────────────────────────────────────────────────
 function openAddModal() {
   selectedFiles = [];
@@ -1818,6 +2479,106 @@ async function checkOllamaStatus() {
   } catch(_) {
     const lbl = document.getElementById('ollama-label');
     if (lbl) lbl.textContent = 'Ollama offline';
+  }
+}
+
+// ── VIDEO GENERATION ──────────────────────────────────────────────
+let _vgThinkId = null;
+let _vgAbort   = null;
+
+function openVideoGenModal(thinkId) {
+  _vgThinkId = thinkId;
+  // Pre-fill prompt with the answer text (first 300 chars)
+  const bodyEl = document.getElementById('ab-' + thinkId);
+  const text   = bodyEl ? (bodyEl.innerText || bodyEl.textContent || '').trim().slice(0, 300) : '';
+  document.getElementById('vg-prompt').value = text;
+  document.getElementById('vg-duration').value = '5';
+  document.getElementById('vg-dur-label').textContent = '5s';
+  document.getElementById('vg-progress').style.display = 'none';
+  document.getElementById('vg-result').style.display   = 'none';
+  document.getElementById('vg-error').style.display    = 'none';
+  document.getElementById('vg-generate-btn').disabled  = false;
+  document.getElementById('video-gen-modal').style.display = 'block';
+}
+
+function closeVideoGenModal() {
+  if (_vgAbort) { _vgAbort.abort(); _vgAbort = null; }
+  document.getElementById('video-gen-modal').style.display = 'none';
+}
+
+async function startVideoGeneration() {
+  const prompt   = document.getElementById('vg-prompt').value.trim();
+  const duration = parseInt(document.getElementById('vg-duration').value);
+  if (!prompt) return;
+
+  const progressEl = document.getElementById('vg-progress');
+  const resultEl   = document.getElementById('vg-result');
+  const errorEl    = document.getElementById('vg-error');
+  const btn        = document.getElementById('vg-generate-btn');
+
+  progressEl.style.display = 'block';
+  progressEl.textContent   = 'Starting…';
+  resultEl.style.display   = 'none';
+  errorEl.style.display    = 'none';
+  btn.disabled             = true;
+
+  _vgAbort = new AbortController();
+
+  try {
+    const res = await fetch('/api/generate-video', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt, duration}),
+      signal: _vgAbort.signal
+    });
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const evt = JSON.parse(line.slice(6));
+          if (evt.type === 'progress') {
+            progressEl.textContent = evt.message;
+          } else if (evt.type === 'done' && evt.video_url) {
+            progressEl.style.display = 'none';
+            resultEl.style.display   = 'block';
+            resultEl.innerHTML = `
+              <video controls style="width:100%;border-radius:8px;background:#000"
+                     src="${escHtml(evt.video_url)}"></video>
+              <a href="${escHtml(evt.video_url)}" download
+                 style="display:inline-block;margin-top:8px;font-size:12px;color:var(--green)">
+                <i class="fa-solid fa-download"></i> Download MP4
+              </a>`;
+            btn.disabled = false;
+          } else if (evt.type === 'error') {
+            progressEl.style.display = 'none';
+            errorEl.style.display    = 'block';
+            let msg = evt.message || 'Generation failed.';
+            if (evt.install) {
+              msg += `<br><code style="font-size:11px;color:var(--text2)">${escHtml(evt.install)}</code>`;
+            }
+            errorEl.innerHTML = msg;
+            btn.disabled = false;
+          }
+        } catch(_) {}
+      }
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      progressEl.style.display = 'none';
+      errorEl.style.display    = 'block';
+      errorEl.textContent      = 'Request failed: ' + e.message;
+      btn.disabled = false;
+    }
   }
 }
 
@@ -2484,6 +3245,96 @@ async function runTask(taskId, docIds) {
   scrollChat();
 }
 
+// ── CONVERSATION PERSISTENCE ──────────────────────────────────────
+let _convList = [];
+
+async function loadConversations() {
+  try {
+    const res = await fetch('/api/conversations');
+    const data = await res.json();
+    _convList = data.conversations || [];
+    renderConversationSidebar();
+    const sec = document.getElementById('conv-section');
+    if (sec) sec.style.display = _convList.length > 0 ? '' : 'none';
+  } catch(_) {}
+}
+
+function renderConversationSidebar() {
+  const el = document.getElementById('conv-list');
+  if (!el) return;
+  if (_convList.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = _convList.map(c => {
+    const active = c.id === currentConvId ? ' active' : '';
+    const title = escHtml(c.title || 'Untitled');
+    return `<div class="conv-item${active}" onclick="loadConversation(${c.id})">
+      <span class="conv-title" title="${title}">${title}</span>
+      <button class="conv-del" onclick="event.stopPropagation();deleteConversation(${c.id})" title="Delete">×</button>
+    </div>`;
+  }).join('');
+}
+
+async function loadConversation(convId) {
+  try {
+    const res = await fetch(`/api/conversations/${convId}/messages`);
+    const data = await res.json();
+    const msgs = data.messages || [];
+    currentConvId = convId;
+    localStorage.setItem('locallab_conv_id', convId);
+    conversationHistory = msgs.map(m => ({role: m.role, content: m.content}));
+    saveHistory();
+    renderConversationSidebar();
+    // Rebuild chat UI
+    const inner = document.getElementById('chatInner');
+    if (!inner) return;
+    if (msgs.length === 0) {
+      inner.innerHTML = `<div class="empty-state" id="emptyState">
+        <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
+        <div class="empty-tagline">Ask anything about your documents</div>
+      </div>`;
+    } else {
+      inner.innerHTML = msgs.map(m => {
+        if (m.role === 'user') {
+          return `<div class="message">
+            <div class="msg-role">You</div>
+            <div class="msg-user">${escHtml(m.content)}</div>
+          </div>`;
+        } else {
+          const sfHtml = m.source_file ? `<div class="answer-meta" style="margin-top:6px">
+            <span class="source-tag" style="cursor:default;opacity:.7;font-size:11px">${escHtml(m.source_file)}</span>
+          </div>` : '';
+          return `<div class="message">
+            <div class="msg-role">locallab</div>
+            <div class="answer-card">
+              <div class="answer-body">${renderMd(m.content)}</div>
+              ${sfHtml}
+            </div>
+          </div>`;
+        }
+      }).join('');
+    }
+    switchView('ask');
+    scrollChat();
+  } catch(e) { console.error('loadConversation', e); }
+}
+
+async function deleteConversation(convId) {
+  try {
+    await fetch(`/api/conversations/${convId}`, {method:'DELETE'});
+    if (currentConvId === convId) {
+      currentConvId = null;
+      localStorage.removeItem('locallab_conv_id');
+      conversationHistory = [];
+      saveHistory();
+      // Show empty state
+      document.getElementById('chatInner').innerHTML = `<div class="empty-state" id="emptyState">
+        <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
+        <div class="empty-tagline">Ask anything about your documents</div>
+      </div>`;
+    }
+    await loadConversations();
+  } catch(_) {}
+}
+
 // ── CHAT HISTORY PERSISTENCE ──────────────────────────────────────
 function saveHistory() {
   try {
@@ -2516,9 +3367,52 @@ function loadHistory() {
   checkOllamaStatus();
   setInterval(checkOllamaStatus, 60000);
   loadHistory();
+  loadDeadlines();
+  setInterval(loadDeadlines, 5 * 60 * 1000); // re-poll every 5 minutes
+  loadSavedQueries();
+  // Load conversation history from DB; if a prior conversation is active, restore it
+  await loadConversations();
+  if (currentConvId) {
+    // Silently verify it still exists; if so, restore it
+    try {
+      const cr = await fetch(`/api/conversations/${currentConvId}/messages`);
+      if (cr.ok) {
+        await loadConversation(currentConvId);
+      } else {
+        currentConvId = null;
+        localStorage.removeItem('locallab_conv_id');
+        loadHistory(); // fall back to localStorage history
+      }
+    } catch(_) { loadHistory(); }
+  }
 })();
 </script>
 <!-- SETTINGS MODAL -->
+<!-- VIDEO GENERATION MODAL -->
+<div id="video-gen-modal" style="display:none">
+  <div class="modal-overlay" onclick="if(event.target===this)closeVideoGenModal()">
+    <div class="modal" onclick="event.stopPropagation()" style="max-width:480px">
+      <div class="modal-title">Generate Video</div>
+      <div class="modal-sub">Creates a short video clip from a text prompt using a local AI model.</div>
+      <div style="margin-top:16px">
+        <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Prompt</label>
+        <textarea id="vg-prompt" rows="3" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-family:inherit;font-size:13px;resize:vertical" placeholder="Describe the video you want to generate…"></textarea>
+      </div>
+      <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
+        <label style="font-size:12px;color:var(--text2);white-space:nowrap">Duration: <span id="vg-dur-label">5s</span></label>
+        <input type="range" id="vg-duration" min="3" max="20" value="5" style="flex:1" oninput="document.getElementById('vg-dur-label').textContent=this.value+'s'">
+      </div>
+      <div id="vg-progress" style="display:none;margin-top:14px;padding:10px 14px;background:var(--bg3);border-radius:8px;font-size:12.5px;color:var(--text2)"></div>
+      <div id="vg-result" style="display:none;margin-top:14px"></div>
+      <div id="vg-error" style="display:none;margin-top:14px;padding:10px 14px;background:var(--red-bg);border-radius:8px;font-size:12.5px;color:var(--text)"></div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button class="btn" onclick="closeVideoGenModal()">Cancel</button>
+        <button class="btn btn-primary" id="vg-generate-btn" onclick="startVideoGeneration()">Generate</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="settings-modal" style="display:none">
   <div class="modal-overlay" onclick="if(event.target===this)document.getElementById('settings-modal').style.display='none'">
     <div class="modal" onclick="event.stopPropagation()">

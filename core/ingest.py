@@ -95,7 +95,9 @@ SUPPORTED = {
     ".pdf", ".docx", ".doc", ".txt", ".md",
     ".png", ".jpg", ".jpeg", ".tiff", ".bmp",
     ".csv", ".xlsx", ".xls",
-    ".json", ".html"
+    ".json", ".html",
+    ".mp4", ".mov", ".avi", ".mkv",      # video
+    ".mp3", ".wav", ".m4a", ".ogg",      # audio
 }
 
 # ── SCHEMA ────────────────────────────────────────────────────────
@@ -412,6 +414,112 @@ def read_image_page(filepath):
     return [(1, response["message"]["content"])]
 
 
+def _fmt_time(seconds):
+    m, s = divmod(int(seconds), 60)
+    return f"{m:02d}:{s:02d}"
+
+
+def read_audio_pages(filepath):
+    """Transcribe audio using faster-whisper. Returns [(page_num, text)] list."""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        name = Path(filepath).name
+        return [(1, f"[Audio file: {name}. Install faster-whisper to transcribe: pip install faster-whisper]")]
+
+    print(f"  [audio] transcribing {Path(filepath).name}...", flush=True)
+    model = WhisperModel("base", device="cpu", compute_type="int8")
+    segments, _ = model.transcribe(str(filepath), beam_size=5)
+
+    PAGE_DURATION = 120.0  # 2 minutes per page
+    pages = []
+    current_page = 1
+    current_lines = []
+    current_end = 0.0
+
+    for seg in segments:
+        current_lines.append(f"[{_fmt_time(seg.start)}] {seg.text.strip()}")
+        current_end = seg.end
+        if current_end >= current_page * PAGE_DURATION:
+            pages.append((current_page, "\n".join(current_lines)))
+            current_page += 1
+            current_lines = []
+
+    if current_lines:
+        pages.append((current_page, "\n".join(current_lines)))
+
+    return pages if pages else [(1, "")]
+
+
+def read_video_pages(filepath):
+    """
+    Extract frames + audio from a video file.
+    Each returned 'page' covers ~2 minutes: frame descriptions + transcript.
+    Requires ffmpeg on PATH.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not shutil.which("ffmpeg"):
+        name = Path(filepath).name
+        return [(1, f"[Video file: {name}. Install ffmpeg to process video: brew install ffmpeg]")]
+
+    pages = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+
+        # 1. Extract audio and transcribe
+        audio_path = tmpdir / "audio.wav"
+        subprocess.run(
+            ["ffmpeg", "-i", str(filepath), "-ar", "16000", "-ac", "1",
+             "-q:a", "0", "-map", "a", str(audio_path), "-y"],
+            capture_output=True, timeout=300
+        )
+        transcript_pages = {}
+        if audio_path.exists() and audio_path.stat().st_size > 0:
+            for page_num, text in read_audio_pages(audio_path):
+                transcript_pages[page_num] = text
+
+        # 2. Extract 1 frame every 30 seconds
+        frames_dir = tmpdir / "frames"
+        frames_dir.mkdir()
+        subprocess.run(
+            ["ffmpeg", "-i", str(filepath), "-vf", "fps=1/30",
+             str(frames_dir / "frame_%04d.jpg"), "-y"],
+            capture_output=True, timeout=300
+        )
+        frame_files = sorted(frames_dir.glob("*.jpg"))
+
+        # 3. Describe frames in groups of 4 (~2-minute segments = 1 page)
+        FRAMES_PER_PAGE = 4
+        n_frames = max(len(frame_files), 1)
+        for page_idx, batch_start in enumerate(range(0, n_frames, FRAMES_PER_PAGE)):
+            page_num = page_idx + 1
+            batch = frame_files[batch_start:batch_start + FRAMES_PER_PAGE]
+            frame_descs = []
+            for i, frame_path in enumerate(batch):
+                b64 = base64.b64encode(frame_path.read_bytes()).decode()
+                ts = (batch_start + i) * 30
+                resp = ollama.chat(
+                    model=VISION_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": "Briefly describe what you see in this frame in 1-2 sentences.",
+                        "images": [b64],
+                    }]
+                )
+                frame_descs.append(f"[{_fmt_time(ts)}] {resp['message']['content'].strip()}")
+
+            combined = "\n".join(frame_descs)
+            transcript = transcript_pages.get(page_num, "")
+            if transcript:
+                combined += "\n\nTranscript:\n" + transcript
+            pages.append((page_num, combined))
+
+    return pages if pages else [(1, "")]
+
+
 def read_page_with_vision(pdf_path, page_num):
     try:
         from pdf2image import convert_from_path
@@ -452,6 +560,10 @@ def extract_pages(filepath):
         return read_csv_pages(filepath)
     elif ext in {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}:
         return read_image_page(filepath)
+    elif ext in {".mp3", ".wav", ".m4a", ".ogg"}:
+        return read_audio_pages(filepath)
+    elif ext in {".mp4", ".mov", ".avi", ".mkv"}:
+        return read_video_pages(filepath)
     elif ext == ".json":
         import json as _json
         try:

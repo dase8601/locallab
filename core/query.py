@@ -43,6 +43,7 @@ EMBED_MODEL             = "nomic-embed-text"
 TOP_K                   = 5
 RETRIEVAL_TOP_K         = 15     # fetch more candidates, re-rank down to TOP_K
 GENERAL_CHAT_THRESHOLD  = 0.30   # similarity below this → fall back to general LLM chat
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
 
 # ── DATABASE ──────────────────────────────────────────────────────
 
@@ -87,6 +88,44 @@ def _rewrite_query(question: str, model: str = None) -> str:
     except Exception:
         pass
     return question  # Fallback to original on any error
+
+
+# Trigger words that signal the user is referencing something from prior context
+REFERENCE_TRIGGERS = {
+    " it", "that file", "this file", "based on that", "from it",
+    "do that", "the document", "that document", "the file",
+    "based on it", "using it", "with it", " that ", "from that",
+}
+
+
+def rewrite_query_with_context(question: str, conversation: list, model: str) -> str:
+    """Expand pronouns/references using recent conversation history."""
+    if not conversation:
+        return question
+    history_text = "\n".join(
+        f"{m['role'].title()}: {m['content']}"
+        for m in conversation[-4:]
+    )
+    prompt = (
+        "Given this conversation history, rewrite the last user message as a "
+        "self-contained search query that resolves all pronouns and references. "
+        "Keep filenames exactly as written. Return ONLY the query, no explanation.\n\n"
+        f"Conversation:\n{history_text}\n\n"
+        f"Last message: {question}\n\nRewritten query:"
+    )
+    try:
+        resp = ollama.chat(
+            model=model or REASON_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.0, "num_predict": 60},
+            stream=False,
+        )
+        rewritten = (resp.message.content or "").strip().strip('"').strip("'")
+        if not rewritten or len(rewritten.split()) > 25:
+            return question
+        return rewritten
+    except Exception:
+        return question
 
 
 # ── RETRIEVAL ─────────────────────────────────────────────────────
@@ -202,14 +241,43 @@ def retrieve_chunks(question, top_k=TOP_K, filename_filter=None):
     for point in results.points:
         p = point.payload or {}
         chunks.append({
-            "text":        p.get("text", ""),
-            "filename":    p.get("filename", "unknown"),
-            "doc_id":      p.get("doc_id", 0),
-            "chunk_index": p.get("chunk_index", 0),
-            "page_start":  p.get("page_start", 0),
-            "page_end":    p.get("page_end", 0),
-            "similarity":  round(point.score, 3),
+            "text":         p.get("text", ""),
+            "filename":     p.get("filename", "unknown"),
+            "doc_id":       p.get("doc_id", 0),
+            "chunk_index":  p.get("chunk_index", 0),
+            "page_start":   p.get("page_start", 0),
+            "page_end":     p.get("page_end", 0),
+            "similarity":   round(point.score, 3),
+            "chunk_db_id":  None,  # resolved below
         })
+
+    # Batch-resolve SQLite chunk IDs and apply feedback score deltas
+    if chunks and DB_PATH.exists():
+        try:
+            fconn = sqlite3.connect(str(DB_PATH), timeout=10)
+            fconn.row_factory = sqlite3.Row
+            # Build lookup: (doc_id, chunk_index) → (chunk.id, score_delta)
+            pairs = [(c["doc_id"], c["chunk_index"]) for c in chunks]
+            placeholders = ",".join("(?,?)" for _ in pairs)
+            flat = [x for pair in pairs for x in pair]
+            rows = fconn.execute(
+                f"""SELECT ch.id, ch.doc_id, ch.chunk_index,
+                           COALESCE(cf.score_delta, 0.0) AS score_delta
+                    FROM chunks ch
+                    LEFT JOIN chunk_feedback cf ON cf.chunk_id = ch.id
+                    WHERE (ch.doc_id, ch.chunk_index) IN (VALUES {placeholders})""",
+                flat
+            ).fetchall()
+            fconn.close()
+            lookup = {(r["doc_id"], r["chunk_index"]): (r["id"], r["score_delta"]) for r in rows}
+            for c in chunks:
+                db_id, delta = lookup.get((c["doc_id"], c["chunk_index"]), (None, 0.0))
+                c["chunk_db_id"] = db_id
+                c["similarity"]  = round(min(1.0, max(0.0, c["similarity"] + delta)), 3)
+            # Re-sort by adjusted similarity
+            chunks.sort(key=lambda c: c["similarity"], reverse=True)
+        except Exception:
+            pass  # feedback scoring is best-effort; don't break retrieval
 
     return chunks
 
@@ -277,8 +345,10 @@ def generate_answer(question, chunks, entities, conversation=None, model=None):
         page_ref = (f"Page {c['page_start']}"
                     if c.get("page_start") and c["page_start"] > 0
                     else "")
+        _ext = Path(c['filename']).suffix.lower()
+        _label = "Image (extracted text)" if _ext in IMAGE_EXTS else "Document"
         context_parts.append(
-            f"[Document: {c['filename']} | {page_ref} | Chunk {c['chunk_index']} "
+            f"[{_label}: {c['filename']} | {page_ref} | Chunk {c['chunk_index']} "
             f"| Relevance: {c['similarity']:.2f}]\n{c['text']}"
         )
 
@@ -408,15 +478,22 @@ def ask(question, top_k=TOP_K, verbose=False, conversation=None, model=None):
         print(f"\n[query] Question: {question}")
         print(f"[query] Retrieving top-{top_k} chunks...", end=" ", flush=True)
 
+    # Resolve pronouns/references using conversation history
+    retrieval_query = question
+    if conversation and any(t in question.lower() for t in REFERENCE_TRIGGERS):
+        retrieval_query = rewrite_query_with_context(question, conversation, model or REASON_MODEL)
+        if verbose and retrieval_query != question:
+            print(f"[query] context-rewritten: {retrieval_query!r}")
+
     # Detect explicit filename mention → scope retrieval to that document
-    filename_filter = _find_filename_filter(question, conn)
+    filename_filter = _find_filename_filter(retrieval_query, conn)
     if verbose and filename_filter:
         print(f"[query] Filename filter active: {filename_filter}")
 
     # Retrieve 10 candidates via hybrid search, pass top 5 to LLM
     # (more candidates improves RRF fusion quality)
     fetch_k = max(top_k * 2, 10)
-    chunks  = retrieve_chunks(question, top_k=fetch_k, filename_filter=filename_filter)
+    chunks  = retrieve_chunks(retrieval_query, top_k=fetch_k, filename_filter=filename_filter)
     if not chunks and filename_filter:
         if verbose:
             print("[query] Filter returned no results, retrying without filter")
@@ -520,23 +597,38 @@ def ask(question, top_k=TOP_K, verbose=False, conversation=None, model=None):
     return result
 
 
-STREAM_PROMPT = """You are locallab, a private document assistant. Answer the question using ONLY the provided document context.
+STREAM_PROMPT = """You are locallab, a private document assistant. Answer using ONLY the provided document context.
 
 Rules:
-1. Answer ONLY from the context — never use outside knowledge
+1. Answer ONLY from the context — never use outside knowledge.
 2. If the answer is not in the context, say: "I could not find this information in your documents."
-3. Cite the document your answer comes from (e.g. "According to filename.pdf...")
-4. Be clear and direct. Use markdown for structure (bullet points, bold) when helpful."""
+3. Cite the document your answer comes from (e.g. "According to filename.pdf...").
+4. Use conversation history to resolve references. If the user says "it", "that file", "based on that", \
+"do this", infer the referent from prior turns. Never claim you lack context — resolve the reference first.
+5. If the user asks you to PERFORM a task (write code, summarize, extract data, draft a reply, \
+list action items), DO IT using the document content as source material. \
+Produce the actual output — do not describe the document instead.
+6. Be clear and direct. Use markdown (bullets, bold, code blocks) when helpful.
+7. When referencing specific evidence, insert citation markers [1], [2] immediately after the claim.
+8. Context labeled "Image (extracted text)" contains text extracted from an image by a vision model \
+— this IS the image's content. When asked to "read", "describe", or "see what's in" an image file, \
+answer using this extracted text directly."""
 
-MULTI_DOC_PROMPT = """You are locallab, a private document assistant. The user wants to compare or analyze multiple documents.
+MULTI_DOC_PROMPT = """You are locallab, a private document assistant analyzing multiple documents.
 
 Rules:
-1. Use ONLY the provided document context — never use outside knowledge
-2. Structure your answer with a **bold heading per document** when comparing
-3. After comparing, add a brief **Summary** section with the key differences or similarities
-4. Cite exact filenames when referencing each document
-5. If a topic is only present in one document, note that explicitly
-6. Use markdown (bullet points, bold, tables) to make comparisons scannable"""
+1. Use ONLY the provided document context — never use outside knowledge.
+2. Use conversation history to resolve references ("these files", "both of them", "do that for each").
+3. If the user asks you to PERFORM a task (compare, summarize, extract, write code), DO IT — produce \
+the actual output, not a description.
+4. Structure your answer with a **bold heading per document** when comparing.
+5. Add a brief **Summary** section after comparing with key differences/similarities.
+6. Cite exact filenames when referencing each document.
+7. If a topic is only present in one document, note that explicitly.
+8. Use markdown for scannability.
+9. Insert citation markers [1], [2] immediately after claims.
+10. Context labeled "Image (extracted text)" contains text extracted from an image by a vision model \
+— answer using it directly when asked about image files."""
 
 
 def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_general=False):
@@ -585,13 +677,20 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
     multi_doc       = _is_multi_doc_query(question, matched_files)
     fetch_k         = max(RETRIEVAL_TOP_K, top_k * 2)
 
-    # Only rewrite vague conversational queries that have no filename target.
-    if not matched_files:
-        retrieval_query = _rewrite_query(question, model=model)
+    # Resolve pronouns/references using conversation history, then keyword-compress if needed.
+    retrieval_query = question
+    if conversation and any(t in question.lower() for t in REFERENCE_TRIGGERS):
+        retrieval_query = rewrite_query_with_context(question, conversation, model or REASON_MODEL)
         if retrieval_query != question:
+            print(f"[query] context-rewritten: {retrieval_query!r}")
+        # Re-detect filenames in the expanded query
+        matched_files   = _find_all_filenames(retrieval_query, conn) or matched_files
+        filename_filter = matched_files[0] if len(matched_files) == 1 else None
+    if not matched_files:
+        kw = _rewrite_query(retrieval_query, model=model)
+        if kw != retrieval_query:
+            retrieval_query = kw
             print(f"[query] rewritten: {retrieval_query!r}")
-    else:
-        retrieval_query = question
 
     try:
         if multi_doc and len(matched_files) >= 2:
@@ -656,6 +755,7 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         {
             "filename":   c["filename"],
             "filepath":   c.get("filepath", ""),
+            "doc_id":     c["doc_id"],
             "page_start": c["page_start"],
             "page_end":   c["page_end"],
             "similarity": c["similarity"],
@@ -676,6 +776,9 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         "model":             model or REASON_MODEL,
         "retrieval_elapsed": retrieval_elapsed,
         "multi_doc":         multi_doc,
+        # IDs of the SQLite chunk rows used — returned so the frontend can
+        # attach them to thumbs-up/down feedback for confidence learning.
+        "chunk_db_ids":      [c.get("chunk_db_id") for c in chunks if c.get("chunk_db_id")],
     }
     yield f"event: meta\ndata: {_json.dumps(meta)}\n\n"
 
@@ -724,16 +827,18 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         context_chunks = (primary_chunks + other_chunks)[:5]
 
         context_parts = []
-        for c in context_chunks:
+        for i, c in enumerate(context_chunks):
             page_ref = f"Page {c['page_start']}" if c.get("page_start") and c["page_start"] > 0 else ""
+            _ext = Path(c['filename']).suffix.lower()
+            _label = "Image (extracted text)" if _ext in IMAGE_EXTS else "Document"
             context_parts.append(
-                f"[Document: {c['filename']} | {page_ref}]\n{c['text']}"
+                f"[{i+1}] [{_label}: {c['filename']} | {page_ref}]\n{c['text']}"
             )
         if entities:
             entity_lines = [f"  [{e['entity_type']}] {e['value']} (from {e['filename']})" for e in entities[:8]]
             context_parts.append("Extracted facts:\n" + "\n".join(entity_lines))
         context = "\n\n---\n\n".join(context_parts)
-        prompt = f"Question: {question}\n\nDocument context:\n{context}\n\nAnswer using only the context above."
+        prompt = f"Question: {question}\n\nDocument context (cite sources by number, e.g. [1]):\n{context}\n\nAnswer using only the context above."
         messages = [{"role": "system", "content": STREAM_PROMPT}]
         if conversation:
             messages.extend(conversation[-6:])
@@ -773,6 +878,36 @@ def ask_stream(question, top_k=TOP_K, conversation=None, model=None, force_gener
         cited_path = next((c.get("filepath", "") for c in chunks if c["filename"] == cited_file), "")
         cited_conf = next((c["similarity"] for c in chunks if c["filename"] == cited_file), top_similarity)
         yield f"event: done\ndata: {_json.dumps({'source_file': cited_file, 'source_path': cited_path, 'confidence': round(cited_conf, 3), 'multi_doc': False})}\n\n"
+
+
+def related_questions(question: str, answer: str, model: str = None) -> list:
+    """
+    Generate 3 follow-up questions based on the question and answer.
+    Returns a list of question strings, or [] on failure.
+    """
+    prompt = (
+        "Given this question and answer, suggest exactly 3 short follow-up questions "
+        "the user might want to ask next. Each question should be specific and grounded "
+        "in the answer. Return ONLY a JSON array of 3 strings, nothing else.\n\n"
+        f"Question: {question}\n\nAnswer: {answer[:800]}\n\nFollow-up questions (JSON array):"
+    )
+    try:
+        resp = ollama.chat(
+            model=model or REASON_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.4, "num_predict": 200},
+        )
+        raw = (resp.message.content or "").strip()
+        raw = re.sub(r'```(?:json)?\s*', '', raw).strip().rstrip('`').strip()
+        start = raw.find('[')
+        end   = raw.rfind(']')
+        if start != -1 and end != -1:
+            parsed = json.loads(raw[start:end+1])
+            if isinstance(parsed, list):
+                return [str(q).strip() for q in parsed if q][:3]
+    except Exception:
+        pass
+    return []
 
 
 def print_result(result):

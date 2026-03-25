@@ -10,8 +10,11 @@ Ask questions about your PDFs, contracts, resumes, and documents — get answers
 
 - **Ask anything** — "What are the payment terms?" → answer + page citation + trust score
 - **Streaming answers** — responses appear token-by-token, no waiting
-- **Vision extraction** — scanned PDFs and slide decks are read via AI vision model
+- **Vision extraction** — scanned PDFs and images are read via AI vision model
+- **Audio & video ingestion** — drop in `.mp3`, `.wav`, `.mp4`, `.mov` — audio is transcribed with Whisper, video frames described by vision model, 100% locally
+- **Research mode** — ReAct agent combines web search + your documents in one cited answer
 - **Entity extraction** — people, companies, dates, amounts automatically pulled from every document
+- **Persistent conversations** — chat history saved to local DB, survives page reload, named sidebar
 - **Export your data** — download everything as JSON, CSV, or SQLite at any time
 - **Dark & light mode** — because details matter
 
@@ -38,7 +41,7 @@ Open [http://localhost:5000](http://localhost:5000)
 
 ### 3. Add files & ask
 
-Drop in PDFs, Word docs, or text files → click "Add files" → ask questions.
+Drop in PDFs, images, audio, video, Word docs, or spreadsheets → click "Add files" → ask questions.
 
 ---
 
@@ -51,6 +54,7 @@ Drop in PDFs, Word docs, or text files → click "Add files" → ask questions.
 | [Ollama](https://ollama.com) | Local model runner |
 | 16 GB RAM | 8 GB minimum (slower) |
 | ~15 GB disk | For models + your documents |
+| `ffmpeg` (optional) | System binary for video ingestion — `brew install ffmpeg` |
 
 **Ollama models pulled automatically by install.sh:**
 
@@ -123,7 +127,7 @@ chunking:
 
 ## Supported file types
 
-`.pdf` `.docx` `.doc` `.txt` `.md` `.csv` `.xlsx` `.xls` `.png` `.jpg` `.jpeg` `.tiff` `.json` `.html`
+`.pdf` `.docx` `.doc` `.txt` `.md` `.csv` `.xlsx` `.xls` `.png` `.jpg` `.jpeg` `.tiff` `.bmp` `.json` `.html` `.mp4` `.mov` `.avi` `.mkv` `.mp3` `.wav` `.m4a` `.ogg`
 
 ---
 
@@ -141,11 +145,13 @@ python ui/app.py
 **Project structure:**
 ```
 core/
-  ingest.py       — document ingestion pipeline
-  query.py        — RAG pipeline (retrieve → answer → confidence)
+  ingest.py       — document ingestion pipeline (PDF, image, audio, video)
+  query.py        — RAG pipeline (retrieve → rewrite → answer → confidence)
+  agent.py        — research mode ReAct agent (web search + document query)
   export.py       — data export (JSON, CSV, SQLite)
   eval.py         — evaluation & scoring
   schema.py       — SQLite schema
+  video_gen.py    — text-to-video generation subprocess (LTX-Video, optional)
 ui/
   app.py          — Flask server + background worker
   templates/

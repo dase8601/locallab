@@ -20,7 +20,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.parent
 DB_PATH  = BASE_DIR / "db" / "done.db"
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 # ── SCHEMA ────────────────────────────────────────────────────────
@@ -198,6 +198,32 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     verdict               TEXT DEFAULT '',
     notes                 TEXT DEFAULT ''
 );
+
+-- Named conversation sessions
+CREATE TABLE IF NOT EXISTS conversations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    title         TEXT    NOT NULL DEFAULT 'New conversation',
+    mode          TEXT    NOT NULL DEFAULT 'docs',
+    model         TEXT    NOT NULL DEFAULT '',
+    message_count INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL
+);
+
+-- Individual messages within a conversation
+CREATE TABLE IF NOT EXISTS messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role            TEXT    NOT NULL CHECK(role IN ('user','assistant')),
+    content         TEXT    NOT NULL,
+    source_file     TEXT    DEFAULT '',
+    confidence      REAL    DEFAULT NULL,
+    mode            TEXT    DEFAULT 'docs',
+    created_at      TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_conv         ON messages(conversation_id, id ASC);
 
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_documents_owner     ON documents(owner_id);

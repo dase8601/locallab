@@ -83,6 +83,15 @@ Switch between Your docs (RAG) and General (direct Ollama chat) with a single to
 | **Infra** | GitHub: dase8601/locallab | Live |
 | **Scripts** | scripts/gen_test_docs.py | Generates 100 realistic test docs (contracts, invoices, etc.) |
 | **Scripts** | scripts/reenrich.py | Re-enriches existing docs with new combined prompt |
+| **Ingestion** | Audio ingestion (.mp3 .wav .m4a .ogg) | faster-whisper base model, CPU, 2-min page splits with [MM:SS] timestamps |
+| **Ingestion** | Video ingestion (.mp4 .mov .avi .mkv) | ffmpeg frame extraction (1/30s) + qwen2.5vl:7b frame descriptions + transcript; graceful fallback if ffmpeg missing |
+| **Query** | Context-aware memory | rewrite_query_with_context() — expands pronouns/references ("it", "that file") using last 4 turns before Qdrant retrieval |
+| **Query** | Image content recognition | IMAGE_EXTS + [Image (extracted text)] context label + STREAM_PROMPT rule — scanned images answered correctly |
+| **UI** | Conversation persistence | DB-backed conversations + messages tables (schema v3); sidebar with named history; survives page reload |
+| **UI** | Research mode (agent) | core/agent.py ReAct loop — search_web + fetch_url + query_documents; wired to /api/agent/stream |
+| **UI** | Video generation scaffold | core/video_gen.py subprocess — LTX-Video via diffusers; SSE progress; graceful fallback if torch/diffusers not installed |
+| **UI** | Chat + attach button | File input in chat box; correct accept attributes for all supported types incl. audio/video |
+| **UI** | Upload race condition fix | Poll job_ids until indexed before unlocking send; toast confirmation |
 
 ---
 
@@ -133,6 +142,7 @@ All 8 tasks built: Summarize, Action items, Dates & deadlines, Key people, Finan
 1. **Demo GIF** (4.3) — record a 30s demo for README (only manual item left)
 2. **Entity graph view** (3.4) — D3 force-directed graph in Explore tab
 3. **Answer grounding score** (3.6) — highlight exact matched sentence in sources panel
+4. **Tests for v1.2 features** — conversations CRUD, agent stream, audio/video ingest paths
 
 ---
 
@@ -184,4 +194,4 @@ logs/
 
 ---
 
-*Last updated: 2026-03-16*
+*Last updated: 2026-03-25*

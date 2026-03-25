@@ -34,7 +34,7 @@ from pathlib import Path
 warnings.filterwarnings("ignore", message=".*wrong pointing object.*")
 warnings.filterwarnings("ignore", message=".*PdfReadWarning.*")
 
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, send_file
 
 # ── PATH SETUP ────────────────────────────────────────────────────
 # Allow importing from core/
@@ -42,7 +42,7 @@ BASE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE_DIR / "core"))
 
 from ingest import init_db, ingest_file, estimate_job, list_documents, SUPPORTED
-from query  import ask, ask_stream
+from query  import ask, ask_stream, related_questions
 # eval is imported lazily to avoid heavy startup cost
 
 # ── APP ───────────────────────────────────────────────────────────
@@ -67,9 +67,71 @@ def get_conn():
 # ── BACKGROUND WORKER ─────────────────────────────────────────────
 # One thread, processes one job at a time, priority order.
 
-_worker_lock   = threading.Lock()
-_worker_active = False
-_eval_running  = False
+_worker_lock          = threading.Lock()
+_worker_active        = False
+_eval_running         = False
+_saved_query_last_run = 0.0   # epoch time of last saved-query schedule check
+
+
+def _run_scheduled_saved_queries():
+    """
+    Called by worker_loop once per minute.
+    Executes any saved queries whose schedule interval has elapsed,
+    stores the result in last_answer + last_run_at.
+    """
+    import datetime as _dt
+    try:
+        conn = get_conn()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS saved_queries (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL,
+                question     TEXT NOT NULL,
+                schedule     TEXT DEFAULT '',
+                last_run_at  TEXT DEFAULT '',
+                last_answer  TEXT DEFAULT '',
+                last_confidence REAL DEFAULT 0.0,
+                created_at   TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        rows = conn.execute(
+            "SELECT * FROM saved_queries WHERE schedule != ''"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return
+
+    now = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+    for row in rows:
+        schedule    = row["schedule"]
+        last_run_at = row["last_run_at"] or ""
+        if last_run_at:
+            try:
+                last_dt = _dt.datetime.fromisoformat(last_run_at.rstrip("Z"))
+                elapsed = (now - last_dt).total_seconds()
+                if schedule == "daily"  and elapsed < 86400:
+                    continue
+                if schedule == "weekly" and elapsed < 604800:
+                    continue
+            except Exception:
+                pass
+        # Run the query (non-streaming, uses ask() directly)
+        try:
+            result    = ask(row["question"])
+            answer    = result.get("answer", "")
+            conf      = float(result.get("confidence") or 0.0)
+            run_ts    = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            wconn     = get_conn()
+            wconn.execute(
+                "UPDATE saved_queries SET last_answer=?, last_confidence=?, last_run_at=? WHERE id=?",
+                (answer[:4000], conf, run_ts, row["id"])
+            )
+            wconn.commit()
+            wconn.close()
+            print(f"[saved-q] Ran '{row['name']}': {len(answer)} chars")
+        except Exception as e:
+            print(f"[saved-q] Error running '{row['name']}': {e}")
 
 
 def worker_loop():
@@ -94,6 +156,11 @@ def worker_loop():
             if not job:
                 _worker_active = False
                 conn.close()
+                # Check scheduled saved queries once per minute
+                global _saved_query_last_run
+                if time.time() - _saved_query_last_run >= 60:
+                    _saved_query_last_run = time.time()
+                    _run_scheduled_saved_queries()
                 time.sleep(3)
                 continue
 
@@ -324,6 +391,54 @@ def api_ask_stream():
             "Cache-Control":      "no-cache",
             "X-Accel-Buffering":  "no",
         },
+    )
+
+
+@app.route("/api/agent/stream", methods=["POST"])
+def api_agent_stream():
+    """
+    POST /api/agent/stream
+    body: { "question": "...", "history": [...], "model": "..." }
+    Returns text/event-stream: agent_step, agent_result, meta, token, done events.
+    """
+    from flask import Response, stream_with_context
+    import json as _json
+
+    try:
+        from agent import agent_stream
+    except ImportError as e:
+        def _err():
+            yield f"event: error\ndata: {_json.dumps({'error': f'Research mode unavailable: {e}. Run: pip install duckduckgo-search beautifulsoup4'})}\n\n"
+        return Response(
+            stream_with_context(_err()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    data     = request.get_json(silent=True) or {}
+    question = (data.get("question") or "").strip()
+    history  = data.get("history") or []
+    model    = (data.get("model") or "").strip() or None
+
+    if not question:
+        return err("question is required")
+
+    import yaml as _yaml
+    cfg_path  = BASE_DIR / "config" / "config.yaml"
+    cfg       = _yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
+    use_model = model or cfg.get("model", "llama3.1:8b")
+
+    def generate():
+        yield ": locallab agent stream\n\n"
+        try:
+            yield from agent_stream(question, model=use_model, history=history)
+        except BaseException as e:
+            yield f"event: error\ndata: {_json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -818,16 +933,21 @@ def api_explore_entities():
 def api_feedback():
     """
     POST /api/feedback
-    body: { question, answer, source_file, confidence, thumbs: 'up'|'down' }
-    Stores one feedback row. Used to surface answer quality in Insights.
+    body: { question, answer, source_file, confidence, thumbs: 'up'|'down', chunk_db_ids?: [int] }
+    Stores feedback and updates per-chunk score deltas for confidence learning.
     """
+    import json as _json
     data   = request.get_json(silent=True) or {}
     thumbs = data.get("thumbs", "")
     if thumbs not in ("up", "down"):
         return err("thumbs must be 'up' or 'down'")
 
+    chunk_db_ids = [int(x) for x in (data.get("chunk_db_ids") or []) if x]
+
     try:
         conn = get_conn()
+        now  = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Ensure feedback table exists (inline creation for backwards compat)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS query_feedback (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -836,25 +956,424 @@ def api_feedback():
                 source_file TEXT,
                 confidence  REAL,
                 thumbs      TEXT CHECK(thumbs IN ('up','down')),
+                chunk_db_ids TEXT DEFAULT '[]',
                 created_at  TEXT NOT NULL
+            )
+        """)
+        # Add chunk_db_ids column if upgrading from older schema
+        try:
+            conn.execute("ALTER TABLE query_feedback ADD COLUMN chunk_db_ids TEXT DEFAULT '[]'")
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
+        # Ensure chunk_feedback table exists for confidence learning
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chunk_feedback (
+                chunk_id    INTEGER PRIMARY KEY REFERENCES chunks(id),
+                thumbs_up   INTEGER DEFAULT 0,
+                thumbs_down INTEGER DEFAULT 0,
+                score_delta REAL DEFAULT 0.0,
+                last_updated TEXT NOT NULL
             )
         """)
         conn.execute(
             """INSERT INTO query_feedback
-               (question, answer, source_file, confidence, thumbs, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (question, answer, source_file, confidence, thumbs, chunk_db_ids, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 (data.get("question") or "")[:500],
                 (data.get("answer")   or "")[:1000],
                 (data.get("source_file") or "")[:255],
                 float(data.get("confidence") or 0),
                 thumbs,
-                time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                _json.dumps(chunk_db_ids),
+                now,
             )
         )
+        # Update per-chunk feedback counters and recompute score delta
+        for cid in chunk_db_ids:
+            if thumbs == "up":
+                conn.execute("""
+                    INSERT INTO chunk_feedback (chunk_id, thumbs_up, thumbs_down, score_delta, last_updated)
+                    VALUES (?, 1, 0, 0.03, ?)
+                    ON CONFLICT(chunk_id) DO UPDATE SET
+                        thumbs_up    = thumbs_up + 1,
+                        score_delta  = MAX(-0.15, MIN(0.15, (thumbs_up + 1 - thumbs_down) * 0.03)),
+                        last_updated = excluded.last_updated
+                """, (cid, now))
+            else:
+                conn.execute("""
+                    INSERT INTO chunk_feedback (chunk_id, thumbs_up, thumbs_down, score_delta, last_updated)
+                    VALUES (?, 0, 1, -0.03, ?)
+                    ON CONFLICT(chunk_id) DO UPDATE SET
+                        thumbs_down  = thumbs_down + 1,
+                        score_delta  = MAX(-0.15, MIN(0.15, (thumbs_up - thumbs_down - 1) * 0.03)),
+                        last_updated = excluded.last_updated
+                """, (cid, now))
         conn.commit()
         conn.close()
         return ok({"recorded": thumbs})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/related-questions", methods=["POST"])
+def api_related_questions():
+    """
+    POST /api/related-questions
+    body: { question, answer, model? }
+    Returns 3 follow-up question suggestions generated by the LLM.
+    """
+    data     = request.get_json(silent=True) or {}
+    question = (data.get("question") or "").strip()
+    answer   = (data.get("answer")   or "").strip()
+    model    = data.get("model") or None
+    if not question or not answer:
+        return ok({"questions": []})
+    try:
+        qs = related_questions(question, answer, model=model)
+        return ok({"questions": qs})
+    except Exception:
+        return ok({"questions": []})
+
+
+# ── SAVED QUERIES ─────────────────────────────────────────────────
+
+def _ensure_saved_queries_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS saved_queries (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT NOT NULL,
+            question     TEXT NOT NULL,
+            schedule     TEXT DEFAULT '',
+            last_run_at  TEXT DEFAULT '',
+            last_answer  TEXT DEFAULT '',
+            last_confidence REAL DEFAULT 0.0,
+            created_at   TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+
+@app.route("/api/saved-queries", methods=["GET"])
+def api_saved_queries_list():
+    """GET /api/saved-queries — list all saved queries."""
+    try:
+        conn = get_conn()
+        _ensure_saved_queries_table(conn)
+        rows = conn.execute(
+            "SELECT * FROM saved_queries ORDER BY created_at DESC"
+        ).fetchall()
+        conn.close()
+        return ok({"saved_queries": [dict(r) for r in rows]})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/saved-queries", methods=["POST"])
+def api_saved_queries_create():
+    """POST /api/saved-queries — create a new saved query."""
+    data     = request.get_json(silent=True) or {}
+    name     = (data.get("name") or "").strip()
+    question = (data.get("question") or "").strip()
+    schedule = data.get("schedule") or ""
+    if not name or not question:
+        return err("name and question are required")
+    if schedule not in ("", "daily", "weekly"):
+        return err("schedule must be '', 'daily', or 'weekly'")
+    try:
+        conn = get_conn()
+        _ensure_saved_queries_table(conn)
+        cur = conn.execute(
+            "INSERT INTO saved_queries (name, question, schedule, created_at) VALUES (?,?,?,?)",
+            (name[:200], question[:1000], schedule, time.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        )
+        new_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return ok({"id": new_id})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/saved-queries/<int:sq_id>", methods=["DELETE"])
+def api_saved_queries_delete(sq_id):
+    """DELETE /api/saved-queries/<id> — remove a saved query."""
+    try:
+        conn = get_conn()
+        conn.execute("DELETE FROM saved_queries WHERE id=?", (sq_id,))
+        conn.commit()
+        conn.close()
+        return ok({"deleted": sq_id})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/saved-queries/<int:sq_id>/run", methods=["POST"])
+def api_saved_queries_run(sq_id):
+    """POST /api/saved-queries/<id>/run — run now and cache the answer."""
+    try:
+        conn = get_conn()
+        _ensure_saved_queries_table(conn)
+        row = conn.execute(
+            "SELECT * FROM saved_queries WHERE id=?", (sq_id,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return err("Saved query not found", 404)
+        result   = ask(row["question"])
+        answer   = result.get("answer", "")
+        conf     = float(result.get("confidence") or 0.0)
+        run_ts   = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        wconn    = get_conn()
+        wconn.execute(
+            "UPDATE saved_queries SET last_answer=?, last_confidence=?, last_run_at=? WHERE id=?",
+            (answer[:4000], conf, run_ts, sq_id)
+        )
+        wconn.commit()
+        wconn.close()
+        return ok({"answer": answer, "confidence": conf, "run_at": run_ts})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+# ── CONVERSATIONS ─────────────────────────────────────────────────
+
+def _ensure_conversations_tables(conn):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            title         TEXT    NOT NULL DEFAULT 'New conversation',
+            mode          TEXT    NOT NULL DEFAULT 'docs',
+            model         TEXT    NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0,
+            created_at    TEXT    NOT NULL,
+            updated_at    TEXT    NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS messages (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            role            TEXT    NOT NULL,
+            content         TEXT    NOT NULL,
+            source_file     TEXT    DEFAULT '',
+            confidence      REAL    DEFAULT NULL,
+            mode            TEXT    DEFAULT 'docs',
+            created_at      TEXT    NOT NULL
+        );
+    """)
+    conn.commit()
+
+
+@app.route("/api/conversations", methods=["GET"])
+def api_conversations_list():
+    """GET /api/conversations — list last 50 conversations."""
+    try:
+        conn = get_conn()
+        _ensure_conversations_tables(conn)
+        rows = conn.execute(
+            "SELECT id, title, mode, model, message_count, created_at, updated_at "
+            "FROM conversations ORDER BY updated_at DESC LIMIT 50"
+        ).fetchall()
+        conn.close()
+        return ok({"conversations": [dict(r) for r in rows]})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/conversations", methods=["POST"])
+def api_conversations_create():
+    """POST /api/conversations — start a new conversation."""
+    data  = request.get_json(silent=True) or {}
+    title = (data.get("title") or "New conversation")[:200]
+    mode  = data.get("mode") or "docs"
+    model = data.get("model") or ""
+    now   = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        conn = get_conn()
+        _ensure_conversations_tables(conn)
+        cur = conn.execute(
+            "INSERT INTO conversations (title, mode, model, message_count, created_at, updated_at) "
+            "VALUES (?,?,?,0,?,?)",
+            (title, mode, model, now, now)
+        )
+        new_id = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM conversations WHERE id=?", (new_id,)).fetchone()
+        conn.close()
+        return ok(dict(row))
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/conversations/<int:conv_id>", methods=["PATCH"])
+def api_conversations_update(conv_id):
+    """PATCH /api/conversations/<id> — update title / increment message_count."""
+    data  = request.get_json(silent=True) or {}
+    now   = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        conn = get_conn()
+        if "title" in data:
+            conn.execute(
+                "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
+                (str(data["title"])[:200], now, conv_id)
+            )
+        conn.commit()
+        conn.close()
+        return ok({"updated": conv_id})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/conversations/<int:conv_id>", methods=["DELETE"])
+def api_conversations_delete(conv_id):
+    """DELETE /api/conversations/<id> — delete conversation and its messages."""
+    try:
+        conn = get_conn()
+        conn.execute("DELETE FROM conversations WHERE id=?", (conv_id,))
+        conn.commit()
+        conn.close()
+        return ok({"deleted": conv_id})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/conversations/<int:conv_id>/messages", methods=["GET"])
+def api_conversations_messages(conv_id):
+    """GET /api/conversations/<id>/messages — all messages in order."""
+    try:
+        conn = get_conn()
+        _ensure_conversations_tables(conn)
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE conversation_id=? ORDER BY id ASC",
+            (conv_id,)
+        ).fetchall()
+        conn.close()
+        return ok({"messages": [dict(r) for r in rows]})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/conversations/<int:conv_id>/messages", methods=["POST"])
+def api_conversations_add_message(conv_id):
+    """POST /api/conversations/<id>/messages — save a message and update parent."""
+    data       = request.get_json(silent=True) or {}
+    role       = data.get("role", "")
+    content    = (data.get("content") or "").strip()
+    source_file = data.get("source_file") or ""
+    confidence  = data.get("confidence")
+    mode        = data.get("mode") or "docs"
+    if role not in ("user", "assistant") or not content:
+        return err("role ('user'|'assistant') and content are required")
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        conn = get_conn()
+        _ensure_conversations_tables(conn)
+        cur = conn.execute(
+            "INSERT INTO messages (conversation_id, role, content, source_file, confidence, mode, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (conv_id, role, content, source_file, confidence, mode, now)
+        )
+        msg_id = cur.lastrowid
+        conn.execute(
+            "UPDATE conversations SET message_count = message_count + 1, updated_at=? WHERE id=?",
+            (now, conv_id)
+        )
+        conn.commit()
+        conn.close()
+        return ok({"id": msg_id, "conversation_id": conv_id, "role": role})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+# ── TIMELINE & DEADLINES ──────────────────────────────────────────
+
+def _parse_date(value):
+    """Try to parse a free-text date string. Returns ISO date string or None."""
+    try:
+        from dateutil import parser as du_parser
+        dt = du_parser.parse(str(value), fuzzy=False)
+        return dt.date().isoformat()
+    except Exception:
+        return None
+
+
+@app.route("/api/timeline", methods=["GET"])
+def api_timeline():
+    """
+    GET /api/timeline
+    Returns all DATE entities with parseable dates, sorted chronologically.
+    """
+    try:
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT e.id, e.value, e.context, e.page_number,
+                   d.id AS doc_id, d.filename
+            FROM entities e
+            JOIN documents d ON e.doc_id = d.id
+            WHERE e.entity_type = 'DATE'
+            ORDER BY e.id
+        """).fetchall()
+        conn.close()
+        events = []
+        for r in rows:
+            norm = _parse_date(r["value"])
+            if not norm:
+                continue
+            events.append({
+                "doc_id":          r["doc_id"],
+                "filename":        r["filename"],
+                "date_value":      r["value"],
+                "normalized_date": norm,
+                "context":         r["context"] or "",
+                "page_number":     r["page_number"] or 0,
+            })
+        events.sort(key=lambda e: e["normalized_date"])
+        return ok({"events": events})
+    except Exception as e:
+        return err(str(e), 500)
+
+
+@app.route("/api/deadlines", methods=["GET"])
+def api_deadlines():
+    """
+    GET /api/deadlines?days=30
+    Returns DATE entities whose normalized date falls within the next N days.
+    """
+    import datetime
+    days = int(request.args.get("days", 30))
+    try:
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT e.id, e.value, e.context, e.page_number,
+                   d.id AS doc_id, d.filename
+            FROM entities e
+            JOIN documents d ON e.doc_id = d.id
+            WHERE e.entity_type = 'DATE'
+        """).fetchall()
+        conn.close()
+        today    = datetime.date.today()
+        deadline = today + datetime.timedelta(days=days)
+        results  = []
+        for r in rows:
+            norm = _parse_date(r["value"])
+            if not norm:
+                continue
+            try:
+                dt = datetime.date.fromisoformat(norm)
+            except ValueError:
+                continue
+            if today <= dt <= deadline:
+                results.append({
+                    "doc_id":          r["doc_id"],
+                    "filename":        r["filename"],
+                    "date_value":      r["value"],
+                    "normalized_date": norm,
+                    "context":         r["context"] or "",
+                    "page_number":     r["page_number"] or 0,
+                    "days_until":      (dt - today).days,
+                })
+        results.sort(key=lambda x: x["days_until"])
+        return ok({"deadlines": results})
     except Exception as e:
         return err(str(e), 500)
 
@@ -1552,6 +2071,50 @@ def api_config_set():
         return err(str(e), 500)
 
 
+# ── DOCUMENT FILE SERVING (for in-app PDF viewer) ─────────────────
+
+@app.route("/api/files/<int:doc_id>/serve", methods=["GET"])
+def api_serve_file(doc_id):
+    """
+    GET /api/files/<id>/serve
+    Serves the raw file bytes for in-app document viewing (PDF.js etc.).
+    Only serves files whose filepath is under the uploads dir or a configured
+    watch folder, preventing path traversal outside managed content.
+    """
+    import mimetypes
+    import yaml
+    try:
+        conn = get_conn()
+        row  = conn.execute(
+            "SELECT filepath, filename FROM documents WHERE id=?", (doc_id,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return err("Document not found", 404)
+
+        filepath = Path(row["filepath"])
+        if not filepath.is_file():
+            return err("File not found on disk", 404)
+
+        # Security: only serve files under uploads/ or configured watch folders
+        uploads_dir = (BASE_DIR / "uploads").resolve()
+        allowed = [uploads_dir]
+        try:
+            cfg = yaml.safe_load((BASE_DIR / "config" / "config.yaml").read_text())
+            for folder in (cfg.get("watch", {}).get("folders") or []):
+                allowed.append(Path(folder).resolve())
+        except Exception:
+            pass
+        resolved = filepath.resolve()
+        if not any(str(resolved).startswith(str(a)) for a in allowed):
+            return err("File is outside managed directories", 403)
+
+        mime = mimetypes.guess_type(str(filepath))[0] or "application/octet-stream"
+        return send_file(str(resolved), mimetype=mime)
+    except Exception as e:
+        return err(str(e), 500)
+
+
 # ── PER-DOCUMENT EXPORT ────────────────────────────────────────────
 
 @app.route("/api/files/<int:doc_id>/export/json", methods=["GET"])
@@ -1725,6 +2288,88 @@ def api_eval_results():
         })
     except Exception as e:
         return err(str(e), 500)
+
+
+# ── VIDEO GENERATION ──────────────────────────────────────────────
+
+VIDEO_GEN_DIR = BASE_DIR / "generated_videos"
+
+@app.route("/api/generate-video", methods=["POST"])
+def api_generate_video():
+    """
+    POST /api/generate-video
+    Body: {prompt: str, duration?: int (3-30)}
+    Returns: SSE stream of JSON lines (progress, done, error events).
+    """
+    import subprocess as _sp
+    import uuid
+
+    data     = request.get_json(silent=True) or {}
+    prompt   = (data.get("prompt") or "").strip()
+    duration = max(3, min(30, int(data.get("duration") or 5)))
+
+    if not prompt:
+        return err("prompt is required")
+
+    VIDEO_GEN_DIR.mkdir(exist_ok=True)
+    out_name = f"{uuid.uuid4().hex}.mp4"
+    out_path = VIDEO_GEN_DIR / out_name
+
+    # Read video generation config
+    vid_cfg  = cfg.get("video_generation", {})
+    model_id = vid_cfg.get("model", "Lightricks/LTX-Video")
+    fps      = int(vid_cfg.get("fps", 8))
+    width    = int(vid_cfg.get("width", 512))
+    height   = int(vid_cfg.get("height", 288))
+
+    script = BASE_DIR / "core" / "video_gen.py"
+
+    def _stream():
+        import json as _json
+        cmd = [
+            sys.executable, str(script),
+            "--prompt",   prompt,
+            "--output",   str(out_path),
+            "--duration", str(duration),
+            "--model",    model_id,
+            "--fps",      str(fps),
+            "--width",    str(width),
+            "--height",   str(height),
+        ]
+        try:
+            proc = _sp.Popen(cmd, stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True)
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = _json.loads(line)
+                except Exception:
+                    evt = {"type": "progress", "message": line}
+                yield f"data: {_json.dumps(evt)}\n\n"
+                if evt.get("type") == "done":
+                    # Rewrite output path to a URL
+                    evt["video_url"] = f"/api/video/{out_name}"
+                    yield f"data: {_json.dumps(evt)}\n\n"
+                    break
+            proc.wait()
+        except Exception as e:
+            yield f"data: {_json.dumps({'type':'error','message':str(e)})}\n\n"
+
+    return Response(stream_with_context(_stream()), mimetype="text/event-stream")
+
+
+@app.route("/api/video/<filename>", methods=["GET"])
+def api_serve_video(filename):
+    """GET /api/video/<filename> — serve a generated video file."""
+    # Sanitize: only allow hex filenames ending in .mp4
+    import re as _re
+    if not _re.match(r'^[a-f0-9]{32}\.mp4$', filename):
+        return err("Invalid filename", 400)
+    path = VIDEO_GEN_DIR / filename
+    if not path.exists():
+        return err("Video not found", 404)
+    return send_file(str(path), mimetype="video/mp4")
 
 
 # ── MAIN ──────────────────────────────────────────────────────────
