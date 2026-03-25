@@ -842,10 +842,12 @@ sup.cite:hover{background:var(--green);color:#fff}
         <button class="fv-tab active" id="fv-tab-chunks" onclick="fvSwitchTab('chunks')">Chunks</button>
         <button class="fv-tab" id="fv-tab-entities" onclick="fvSwitchTab('entities')">Entities</button>
         <button class="fv-tab" id="fv-tab-questions" onclick="fvSwitchTab('questions')">Questions</button>
+        <button class="fv-tab" id="fv-tab-preview" onclick="fvSwitchTab('preview')" style="display:none">Preview</button>
       </div>
       <div id="fv-chunks-pane" style="margin-top:14px"></div>
       <div id="fv-entities-pane" style="margin-top:14px;display:none"></div>
       <div id="fv-questions-pane" style="margin-top:14px;display:none"></div>
+      <div id="fv-preview-pane" style="margin-top:14px;display:none"></div>
     </div>
   </div>
 </div>
@@ -2296,6 +2298,8 @@ async function openFileViewer(docId) {
   document.getElementById('fv-chunks-pane').innerHTML =
     '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">Loading…</div>';
   document.getElementById('fv-entities-pane').innerHTML = '';
+  document.getElementById('fv-preview-pane').innerHTML = '';
+  document.getElementById('fv-tab-preview').style.display = 'none';
   fvSwitchTab('chunks');
 
   try {
@@ -2326,6 +2330,50 @@ async function openFileViewer(docId) {
     // Per-doc export links
     document.getElementById('fv-export-json').href = `/api/files/${doc.id}/export/json`;
     document.getElementById('fv-export-csv').href  = `/api/files/${doc.id}/export/csv`;
+
+    // Preview tab — show for previewable types
+    const ext = (doc.filename || '').split('.').pop().toLowerCase();
+    const previewTab = document.getElementById('fv-tab-preview');
+    const previewPane = document.getElementById('fv-preview-pane');
+    const serveUrl = `/api/files/${doc.id}/serve`;
+    const VIDEO_EXTS = ['mp4','mov','avi','mkv','webm'];
+    const AUDIO_EXTS = ['mp3','wav','m4a','ogg','aac'];
+    const IMAGE_EXTS = ['png','jpg','jpeg','bmp','tiff','gif','webp'];
+    const TEXT_EXTS  = ['txt','md','csv','json','html','py','js','ts'];
+    if (VIDEO_EXTS.includes(ext)) {
+      previewTab.style.display = 'inline-block';
+      previewPane.innerHTML = `
+        <video controls style="width:100%;max-height:480px;border-radius:8px;background:#000" src="${serveUrl}">
+          Your browser does not support video playback.
+        </video>`;
+    } else if (AUDIO_EXTS.includes(ext)) {
+      previewTab.style.display = 'inline-block';
+      previewPane.innerHTML = `
+        <div style="padding:24px 0">
+          <audio controls style="width:100%" src="${serveUrl}">
+            Your browser does not support audio playback.
+          </audio>
+        </div>`;
+    } else if (IMAGE_EXTS.includes(ext)) {
+      previewTab.style.display = 'inline-block';
+      previewPane.innerHTML = `
+        <img src="${serveUrl}" alt="${escHtml(doc.filename)}"
+          style="max-width:100%;border-radius:8px;display:block;margin:0 auto">`;
+    } else if (ext === 'pdf') {
+      previewTab.style.display = 'inline-block';
+      previewPane.innerHTML = `
+        <iframe src="${serveUrl}" style="width:100%;height:520px;border:none;border-radius:8px"></iframe>`;
+    } else if (TEXT_EXTS.includes(ext)) {
+      previewTab.style.display = 'inline-block';
+      previewPane.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0">Loading…</div>';
+      fetch(serveUrl).then(r => r.text()).then(txt => {
+        previewPane.innerHTML = `<pre style="font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:520px;overflow-y:auto;background:var(--bg3);padding:14px;border-radius:8px;border:1px solid var(--border)">${escHtml(txt.slice(0, 50000))}</pre>`;
+      }).catch(() => {
+        previewPane.innerHTML = '<div style="color:var(--text3);font-size:12px">Could not load file preview.</div>';
+      });
+    } else {
+      previewTab.style.display = 'none';
+    }
 
     // Chunks pane
     document.getElementById('fv-chunks-pane').innerHTML = data.chunks.length
@@ -2375,9 +2423,11 @@ function fvSwitchTab(tab) {
   document.getElementById('fv-chunks-pane').style.display    = tab === 'chunks'    ? 'block' : 'none';
   document.getElementById('fv-entities-pane').style.display  = tab === 'entities'  ? 'block' : 'none';
   document.getElementById('fv-questions-pane').style.display = tab === 'questions' ? 'block' : 'none';
+  document.getElementById('fv-preview-pane').style.display   = tab === 'preview'   ? 'block' : 'none';
   document.getElementById('fv-tab-chunks').classList.toggle('active',    tab === 'chunks');
   document.getElementById('fv-tab-entities').classList.toggle('active',  tab === 'entities');
   document.getElementById('fv-tab-questions').classList.toggle('active', tab === 'questions');
+  document.getElementById('fv-tab-preview').classList.toggle('active',   tab === 'preview');
 }
 
 // ── EXPORT DROPDOWN ────────────────────────────────────────────────
