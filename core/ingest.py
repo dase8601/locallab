@@ -51,6 +51,13 @@ except ImportError:
     print("[ingest] ERROR: pip install qdrant-client")
     sys.exit(1)
 
+try:
+    from vjepa_utils import select_keyframes as _vjepa_select
+except ImportError:
+    def _vjepa_select(frame_paths, max_frames=12):
+        step = max(1, len(frame_paths) // max_frames)
+        return frame_paths[::step][:max_frames]
+
 # ── CONFIG ────────────────────────────────────────────────────────
 BASE_DIR     = Path(__file__).parent.parent
 DB_PATH      = BASE_DIR / "db" / "done.db"
@@ -419,6 +426,12 @@ def _fmt_time(seconds):
     return f"{m:02d}:{s:02d}"
 
 
+def _frame_ts_from_path(frame_path: Path, sample_rate: int = 5) -> int:
+    """Return wall-clock seconds for a frame_%04d.jpg extracted at 1/sample_rate fps."""
+    idx = int(frame_path.stem.split("_")[1])   # frame_0001 → 1
+    return (idx - 1) * sample_rate             # 0-indexed, sample_rate seconds per step
+
+
 def read_audio_pages(filepath):
     """Transcribe audio using faster-whisper. Returns [(page_num, text)] list."""
     try:
@@ -485,22 +498,27 @@ def read_video_pages(filepath):
         frames_dir = tmpdir / "frames"
         frames_dir.mkdir()
         subprocess.run(
-            ["ffmpeg", "-i", str(filepath), "-vf", "fps=1/30",
+            ["ffmpeg", "-i", str(filepath), "-vf", "fps=1/5",
              str(frames_dir / "frame_%04d.jpg"), "-y"],
             capture_output=True, timeout=300
         )
         frame_files = sorted(frames_dir.glob("*.jpg"))
 
-        # 3. Describe frames in groups of 4 (~2-minute segments = 1 page)
+        # V-JEPA keyframe selection (falls back to uniform if not installed)
+        selected_frames = _vjepa_select(frame_files, max_frames=12)
+        print(f"  [video] {len(frame_files)} candidate frames → {len(selected_frames)} selected",
+              flush=True)
+
+        # 3. Describe selected frames in groups of 4 (~2-minute segments = 1 page)
         FRAMES_PER_PAGE = 4
-        n_frames = max(len(frame_files), 1)
+        n_frames = max(len(selected_frames), 1)
         for page_idx, batch_start in enumerate(range(0, n_frames, FRAMES_PER_PAGE)):
             page_num = page_idx + 1
-            batch = frame_files[batch_start:batch_start + FRAMES_PER_PAGE]
+            batch = selected_frames[batch_start:batch_start + FRAMES_PER_PAGE]
             frame_descs = []
-            for i, frame_path in enumerate(batch):
+            for frame_path in batch:
                 b64 = base64.b64encode(frame_path.read_bytes()).decode()
-                ts = (batch_start + i) * 30
+                ts = _frame_ts_from_path(frame_path, sample_rate=5)
                 resp = ollama.chat(
                     model=VISION_MODEL,
                     messages=[{

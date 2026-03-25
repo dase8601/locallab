@@ -16,5 +16,9 @@ duckduckgo-search>=6.0
 beautifulsoup4>=4.12
 faster-whisper>=1.0
 
+# Optional: V-JEPA 2.1 smart keyframe selection for video ingestion
+# python scripts/setup_vjepa.py   (pip + git clone + ~300 MB model download)
+# Requires: torch torchvision timm einops  (~2 GB on first install)
+
 # Optional: text-to-video generation (requires GPU with 8GB+ VRAM)
 # pip install diffusers torch transformers accelerate imageio[ffmpeg]

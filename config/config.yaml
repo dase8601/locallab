@@ -14,6 +14,10 @@ retrieval:
   top_k: 5
 vision:
   page_chars_min: 30
+video:
+  max_frames_per_segment: 12   # V-JEPA keyframe budget per 2-minute page
+  frame_sample_rate: 5         # ffmpeg: extract 1 frame per N seconds (candidates)
+
 video_generation:
   model: "Lightricks/LTX-Video"   # or "THUDM/CogVideoX-2b" for lower VRAM
   fps: 8
