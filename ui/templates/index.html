@@ -416,7 +416,7 @@ sup.cite:hover{background:var(--green);color:#fff}
 
 <aside class="sidebar">
   <div class="sidebar-header">
-    <span class="logo"><img src="/static/noback.png" alt="locallab"></span>
+    <span class="logo"><img src="/static/LocalLabsreallogo-removebg-preview.png" alt="locallab"></span>
     <button class="new-btn" onclick="newChat()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       New question
@@ -925,6 +925,11 @@ let _selectedTaskId    = null;
 let isLightMode = localStorage.getItem('locallab_theme') === 'light';
 
 function logoSrc() {
+  return isLightMode
+    ? '/static/LocalLabsreallogo-removebg-preview.png'
+    : '/static/Geometric%20black%20and%20white%20logo.png';
+}
+function centerLogoSrc() {
   return isLightMode ? '/static/orglocallab.png' : '/static/noback.png';
 }
 
@@ -934,9 +939,13 @@ function applyTheme() {
   const label = document.getElementById('theme-toggle-label');
   if (track) track.classList.toggle('on', isLightMode);
   if (label) label.textContent = isLightMode ? 'Dark mode' : 'Light mode';
-  // Swap logo in sidebar and empty state
-  document.querySelectorAll('.logo img, .empty-logo img').forEach(img => {
+  // Swap sidebar logo
+  document.querySelectorAll('.logo img').forEach(img => {
     img.src = logoSrc();
+  });
+  // Swap center empty-state logo
+  document.querySelectorAll('.empty-logo img').forEach(img => {
+    img.src = centerLogoSrc();
   });
 }
 function toggleTheme() {
@@ -1016,7 +1025,7 @@ function fillQ(btn) {
 async function newChat() {
   document.getElementById('chatInner').innerHTML = `
     <div class="empty-state" id="emptyState">
-      <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
+      <div class="empty-logo"><img src="${centerLogoSrc()}" alt="locallab"></div>
       <div class="empty-tagline">Ask anything about your documents</div>
     </div>`;
   document.getElementById('qInput').value = '';
@@ -2242,8 +2251,7 @@ async function checkFirstRun() {
     if ((data.documents || []).length === 0) {
       const overlay = document.getElementById('welcome-overlay');
       overlay.style.display = 'flex';
-      // Set logo based on theme
-      document.getElementById('welcome-logo').src = logoSrc();
+      document.getElementById('welcome-logo').src = centerLogoSrc();
     }
   } catch(_) {}
 }
@@ -3338,7 +3346,7 @@ async function loadConversation(convId) {
     if (!inner) return;
     if (msgs.length === 0) {
       inner.innerHTML = `<div class="empty-state" id="emptyState">
-        <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
+        <div class="empty-logo"><img src="${centerLogoSrc()}" alt="locallab"></div>
         <div class="empty-tagline">Ask anything about your documents</div>
       </div>`;
     } else {
@@ -3377,7 +3385,7 @@ async function deleteConversation(convId) {
       saveHistory();
       // Show empty state
       document.getElementById('chatInner').innerHTML = `<div class="empty-state" id="emptyState">
-        <div class="empty-logo"><img src="${logoSrc()}" alt="locallab"></div>
+        <div class="empty-logo"><img src="${centerLogoSrc()}" alt="locallab"></div>
         <div class="empty-tagline">Ask anything about your documents</div>
       </div>`;
     }

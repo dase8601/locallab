@@ -258,6 +258,8 @@ def estimate_job(filepath):
             page_count = 1
     elif ext in {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}:
         page_count = 1
+    elif ext in {".mp4", ".mov", ".avi", ".mkv", ".mp3", ".wav", ".m4a", ".ogg"}:
+        page_count = 1  # actual page count determined during extraction
     else:
         page_count = max(1, int(size_mb * 5))
 
@@ -517,7 +519,15 @@ def read_video_pages(filepath):
             batch = selected_frames[batch_start:batch_start + FRAMES_PER_PAGE]
             frame_descs = []
             for frame_path in batch:
-                b64 = base64.b64encode(frame_path.read_bytes()).decode()
+                from PIL import Image as _PILImage
+                import io as _io
+                _img = _PILImage.open(frame_path)
+                _w, _h = _img.size
+                if _w > 768:
+                    _img = _img.resize((768, int(_h * 768 / _w)), _PILImage.LANCZOS)
+                _buf = _io.BytesIO()
+                _img.save(_buf, format="JPEG", quality=85)
+                b64 = base64.b64encode(_buf.getvalue()).decode()
                 ts = _frame_ts_from_path(frame_path, sample_rate=5)
                 resp = ollama.chat(
                     model=VISION_MODEL,
