@@ -32,6 +32,11 @@ exports/
 =0.*
 =1.*
 
+# Screen recordings / large media (keep local only)
+ui/static/*.mov
+ui/static/*.mp4
+core/vjepa2/
+
 # Claude Code personal settings
 .claude/
 
