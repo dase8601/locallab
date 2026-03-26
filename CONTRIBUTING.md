@@ -1,102 +1,61 @@
 # Contributing to locallab
 
-Thanks for your interest in making locallab better. This is an open-source, local-first document AI — contributions that keep it fast, private, and dependency-light are most welcome.
+Thanks for your interest — contributions are welcome and appreciated. This is an open project and there's a lot of room to make it better.
 
----
+## Getting started
+
+```bash
+git clone https://github.com/dase8601/locallab.git
+cd locallab
+./install.sh          # installs dependencies and sets up venv
+source venv/bin/activate
+python ui/app.py      # runs at http://localhost:5000
+```
+
+You'll also need [Ollama](https://ollama.com) running locally with at least one model pulled:
+
+```bash
+ollama pull llama3.1:8b
+ollama pull nomic-embed-text
+```
+
+For vision (scanned PDFs / images / video):
+```bash
+ollama pull qwen2.5vl:7b
+```
 
 ## How to contribute
 
-### Reporting bugs
+1. Fork the repo
+2. Create a branch (`git checkout -b my-feature`)
+3. Make your changes
+4. Open a pull request against `main`
 
-Open an issue at [github.com/dase8601/locallab/issues](https://github.com/dase8601/locallab/issues) and include:
+No strict rules — just keep PRs focused and describe what you changed and why.
 
-- What you did
-- What you expected to happen
-- What actually happened (paste the error, log line, or screenshot)
-- Your OS, Python version, and Ollama version (`ollama --version`)
+## What's welcome
 
-### Suggesting features
-
-Check [PLAN.md](PLAN.md) first — if it's already on the roadmap, comment on an existing issue or open a new one explaining your use case. Features that keep locallab fully local (no cloud dependencies) are prioritized.
-
-### Submitting a pull request
-
-1. Fork the repo and create a branch from `main`
-2. Make your changes (see coding standards below)
-3. Test locally — run `python ui/app.py` and exercise the affected path
-4. Open a PR against `main` with a clear description of what changed and why
-
----
-
-## Local setup
-
-```bash
-git clone https://github.com/dase8601/locallab
-cd locallab
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python ui/app.py          # → http://localhost:5001
-```
-
-**Requires:** Python 3.10+, [Ollama](https://ollama.com) running locally with at least `llama3.1:8b` and `nomic-embed-text` pulled.
-
----
+- Bug fixes
+- New features from the roadmap (see `PLAN.md`)
+- UI improvements
+- Performance improvements
+- Better prompts / RAG quality
+- Support for new file types
+- Tests
 
 ## Project structure
 
 ```
-core/
-  ingest.py       ← ingestion pipeline (extract → chunk → embed → Qdrant)
-  ingest_job.py   ← subprocess wrapper (keeps crashes isolated from Flask)
-  query.py        ← RAG pipeline (retrieve → re-rank → stream)
-  tasks.py        ← document task agents (summarize, action items, compare, …)
-  export.py       ← JSON / CSV / SQLite export
-  eval.py         ← grounding evaluation pipeline
-  schema.py       ← single source of truth for DB schema + migrations
+core/         — ingestion, querying, entity extraction, agents
 ui/
-  app.py          ← Flask server + background worker + watch folder observer
-  templates/
-    index.html    ← entire frontend (single file, vanilla JS — no build step)
-  static/         ← logo assets
-config/
-  config.yaml     ← models, watch folders, chunk sizes, retrieval settings
-db/
-  done.db         ← SQLite database
-  qdrant/         ← Qdrant local vector store
+  app.py      — Flask server + background worker
+  templates/  — single-page frontend (index.html)
+  static/     — logos, assets
+config/       — config.yaml (models, chunk sizes, retrieval settings)
+db/           — SQLite + Qdrant vector store (local only, not committed)
+scripts/      — setup helpers (V-JEPA, etc.)
 ```
 
----
+## Questions
 
-## Coding standards
-
-**Python**
-- Follow the existing style — no extra dependencies without a strong reason
-- Ingest and query are performance-critical — profile before optimizing
-- All DB changes go through `schema.py` (`SCHEMA` constant + `migrate_db()`) — never `ALTER TABLE` ad hoc
-- Subprocess isolation for ingest is intentional — don't move heavy work into the Flask process
-
-**Frontend**
-- `index.html` is a single-file vanilla JS app — no bundler, no npm
-- Keep it that way — the zero-build-step constraint is a feature, not a bug
-- Use `escHtml()` on all user-supplied or DB-sourced strings before inserting into innerHTML
-- SSE streaming uses `AbortController` — don't use `reader.cancel()` (it doesn't unblock pending reads)
-
-**Vector store**
-- We use Qdrant (local), not ChromaDB
-- Use `client.query_points()` — `client.search()` was removed in qdrant-client v1.13+
-- Collection name is `locallab`
-
----
-
-## What we're NOT looking for
-
-- Cloud integrations (S3, OpenAI API, etc.) — locallab must work 100% offline
-- New Python dependencies for things the stdlib handles
-- UI framework migrations — the single-file vanilla JS approach is deliberate
-
----
-
-## Questions?
-
-Open an issue or start a discussion on GitHub. We're happy to help you get oriented.
+Open an issue or reach out directly. Happy to help you get oriented.
