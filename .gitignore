@@ -32,9 +32,7 @@ exports/
 =0.*
 =1.*
 
-# Screen recordings / large media (keep local only)
-ui/static/*.mov
-ui/static/*.mp4
+# V-JEPA cloned repo (installed via scripts/setup_vjepa.py)
 core/vjepa2/
 
 # Claude Code personal settings
