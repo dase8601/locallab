@@ -1,7 +1,7 @@
 # locallab
 
 **Private AI for your files. 100% local. Zero cloud.**
-
+demo video here ui/static/Screen Recording 2026-03-25 at 8.19.04 PM.mov
 Ask questions about your PDFs, contracts, resumes, and documents — get answers with exact source citations. Everything runs on your machine using [Ollama](https://ollama.com).
 
 ---
